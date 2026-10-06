@@ -44,10 +44,7 @@ export function computeEstimate(
   add(`Escritorios: ${input.desks}`, input.desks * pricing.pricePerDesk);
   add(`Baños: ${input.bathrooms}`, input.bathrooms * pricing.pricePerBathroom);
   let estimate = breakdown.reduce((s, r) => s + r.amount, 0);
-  if (estimate < pricing.minimum) {
-    breakdown.push({ label: "Ajuste a valor mínimo", amount: pricing.minimum - estimate });
-    estimate = pricing.minimum;
-  }
+  // Mismo orden que la vista previa del front (descuento y luego mínimo), o no cuadran.
   const pct = (pricing.frequencyDiscounts as any)?.[input.frequency] ?? 0;
   if (pct > 0) {
     const discount = Math.round((estimate * pct) / 100);
@@ -56,6 +53,10 @@ export function computeEstimate(
       amount: -discount,
     });
     estimate -= discount;
+  }
+  if (estimate < pricing.minimum) {
+    breakdown.push({ label: "Ajuste a valor mínimo", amount: pricing.minimum - estimate });
+    estimate = pricing.minimum;
   }
   return { estimate, breakdown };
 }
