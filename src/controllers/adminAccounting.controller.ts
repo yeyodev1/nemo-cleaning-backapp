@@ -44,6 +44,18 @@ export async function copyPayables(req: AuthRequest, res: Response) {
   res.json(await payables.copyPayables(req.body, req.user!));
 }
 
+export async function payrollYear(req: AuthRequest, res: Response) {
+  res.json(await payroll.payrollYear(req.user!, req.query));
+}
+export async function savePayrollSalary(req: AuthRequest, res: Response) {
+  res.json(await payroll.saveSalary(req.user!, req.body));
+}
+export async function copyPayroll(req: AuthRequest, res: Response) {
+  res.json(await payroll.copyPayroll(req.user!, req.body));
+}
+export async function removePayrollRow(req: AuthRequest, res: Response) {
+  res.json(await payroll.removePayrollRow(req.user!, req.body));
+}
 export async function listPayroll(req: AuthRequest, res: Response) {
   res.json(await payroll.listPayroll(req.user!, req.query));
 }

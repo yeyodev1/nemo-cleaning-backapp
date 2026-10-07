@@ -8,6 +8,7 @@ import {
   ICommissionTier,
 } from "../models/commission.model";
 import { User } from "../models/user.model";
+import { manualTotalsByMonth } from "./commissionEntry.service";
 import { SessionUser } from "../types/AuthRequest";
 import { currentMonth, daysBetween, isValidDate, isValidMonth, monthBounds } from "../utils/date";
 import { assertObjectId, str } from "../utils/http";
@@ -20,6 +21,8 @@ import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
  *   FEE SUPERVISOR = excedente × % supervisor (14 %), para quien supervisa al operador.
  * La producción se calcula con todas las sucursales del día (la base es diaria) y luego
  * se reparte a cada sucursal según lo que el operador produjo en ella.
+ * SOLO REFERENCIA ("Calculadora FEE" del panel): los reportes usan las comisiones manuales
+ * (`commissionEntry.service.ts`). "Usar este valor" copia el FEE a la celda manual.
  */
 
 /** Quincena del Excel: Q1 = días 1–15, Q2 = 16–fin de mes. */
@@ -221,32 +224,16 @@ function scopeBranches(user: SessionUser, requested: unknown): string[] {
 
 /**
  * Totales por mes del año (centavos) para el estado de resultados. Firma acordada con
- * el módulo de finanzas: no cambiarla.
+ * el módulo de finanzas: no cambiarla. Desde 2026-10 devuelve las comisiones MANUALES
+ * (hoja "Comisiones" que escribe gerencia, `CommissionEntry`): el FEE calculado de abajo
+ * es solo una referencia y no entra a ningún reporte. `supervisor` queda en 0.
  */
 export async function commissionTotalsByMonth(
   year: number,
   branchId?: string,
 ): Promise<{ month: number; operators: number; supervisor: number; total: number }[]> {
-  const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, operators: 0, supervisor: 0, total: 0 }));
-  const branches = branchId && isValidObjectId(branchId) ? [branchId] : [];
-  const from = `${year}-01-01`;
-  const to = `${year}-12-31`;
-  const [{ cells }, adjustments] = await Promise.all([
-    computeCells(from, to, branches),
-    CommissionAdjustment.find(adjustmentFilter(from, to, branches)).select("date kind amount").lean(),
-  ]);
-  for (const { date, cell } of cells) {
-    const row = rows[Number(date.slice(5, 7)) - 1];
-    row.operators += cell.fee;
-    row.supervisor += cell.supervisorFee;
-  }
-  for (const a of adjustments) {
-    const row = rows[Number(a.date.slice(5, 7)) - 1];
-    if (a.kind === "supervisor") row.supervisor += a.amount;
-    else row.operators += a.amount;
-  }
-  for (const r of rows) r.total = r.operators + r.supervisor;
-  return rows;
+  const totals = await manualTotalsByMonth(year, branchId && isValidObjectId(branchId) ? branchId : undefined);
+  return totals.map((total, i) => ({ month: i + 1, operators: total, supervisor: 0, total }));
 }
 
 /** GET /admin/commissions?month=&branch= — la hoja FEE del mes con totales por quincena. */

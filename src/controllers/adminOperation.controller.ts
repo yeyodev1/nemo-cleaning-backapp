@@ -1,5 +1,6 @@
 import { Response } from "express";
 import * as commissionService from "../services/commission.service";
+import * as commissionEntryService from "../services/commissionEntry.service";
 import * as goalService from "../services/goal.service";
 import * as novedadService from "../services/novedad.service";
 import * as productionService from "../services/production.service";
@@ -51,6 +52,15 @@ export async function copyGoals(req: AuthRequest, res: Response) {
 }
 
 // Comisiones (FEE)
+export async function commissionEntries(req: AuthRequest, res: Response) {
+  res.json(await commissionEntryService.yearGrid(req.user!, req.query));
+}
+export async function saveCommissionEntry(req: AuthRequest, res: Response) {
+  res.json(await commissionEntryService.saveEntry(req.user!, req.body));
+}
+export async function removeCommissionRow(req: AuthRequest, res: Response) {
+  res.json(await commissionEntryService.removeRow(req.user!, req.body));
+}
 export async function commissionSheet(req: AuthRequest, res: Response) {
   res.json(await commissionService.monthSheet(req.user!, req.query));
 }

@@ -24,6 +24,10 @@ finance.post("/payables/copy", admin, c.copyPayables);
 finance.patch("/payables/:id", admin, c.updatePayable);
 finance.delete("/payables/:id", admin, c.deletePayable);
 
+finance.get("/payroll/year", admin, c.payrollYear);
+finance.put("/payroll/salary", admin, c.savePayrollSalary);
+finance.post("/payroll/copy", admin, c.copyPayroll);
+finance.post("/payroll/remove-row", admin, c.removePayrollRow);
 finance.get("/payroll", admin, c.listPayroll);
 finance.post("/payroll", admin, c.addPayroll);
 finance.patch("/payroll/:id", admin, c.updatePayroll);

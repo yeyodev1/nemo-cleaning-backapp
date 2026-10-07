@@ -52,6 +52,10 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
   verify crea el Customer). `LoginCode` guarda solo el HMAC del código (pepper `JWT_SECRET`), TTL 10 min, 5 intentos,
   60 s entre envíos, un solo uso. Tokens separados: `authMiddleware` rechaza los de cliente (`aud`/`type: "customer"`) y
   `customerAuthMiddleware` solo acepta `aud: "customer"`. `POST /public/bookings` usa `optionalCustomerAuth`.
+- **Sueldos, comisiones y metas los escribe gerencia** (ver "Sueldos, comisiones y metas a mano" en el contrato):
+  `commissionTotalsByMonth` suma `CommissionEntry` (manual); el FEE de `commission.service.ts` es solo referencia y no
+  entra a ningún reporte. Nómina por mes = `PayrollEntry` (`payroll.service.ts#payrollYear/saveSalary`); `monthlySalary`
+  del Personal solo propone meses nuevos.
 - **Token público:** `Booking.accessToken` tiene `select: false`; solo sale al crear el pedido, en la confirmación de Payphone y como `trackingUrl` en el detalle del panel.
 
 ## Convenciones

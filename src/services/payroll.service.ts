@@ -5,9 +5,10 @@ import { PayrollEntry } from "../models/payrollEntry.model";
 import { User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
 import { isValidDate, monthBounds } from "../utils/date";
-import { fortnightOf, monthParam } from "../utils/fortnight";
+import { fortnightOf, monthParam, yearParam } from "../utils/fortnight";
 import { assertObjectId, cents, str } from "../utils/http";
 import { branchFilter } from "../utils/scope";
+import { branchNames, staffOptions } from "./commissionEntry.service";
 
 /**
  * Nómina quincenal (hojas "Nómina" + "Nómina Quincenal" del Excel):
@@ -19,7 +20,7 @@ import { branchFilter } from "../utils/scope";
  */
 
 /** Campos de Personal que agrega la fase 2 (cargo y sueldo); tolera que aún no existan. */
-function staffSalary(u: any): number {
+export function staffSalary(u: any): number {
   const n = Number(u?.monthlySalary ?? u?.salary ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
 }
@@ -31,7 +32,7 @@ const POSITION_LABEL: Record<string, string> = {
   washer: "Lavador",
 };
 
-function staffPosition(u: any): string {
+export function staffPosition(u: any): string {
   const raw = String(u?.position ?? u?.cargo ?? "").trim();
   if (raw) return POSITION_LABEL[raw] ?? raw;
   if (u?.role === "manager") return "Administrador";
@@ -232,4 +233,140 @@ export async function deletePayroll(id: string, user: SessionUser) {
   const entry = await loadEntry(id, user);
   await entry.deleteOne();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Grilla anual (hoja "Nómina" del Excel): sueldo base por colaborador y mes.
+// Cada celda es la `PayrollEntry` de ese mes: editar un mes no toca los demás.
+// ---------------------------------------------------------------------------
+
+const yearMonths = (year: number) => Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
+const hasPayments = (e: any) => (e.q1?.paid ?? 0) > 0 || (e.q2?.paid ?? 0) > 0;
+
+/** GET /admin/finance/payroll/year?year=&branch= */
+export async function payrollYear(user: SessionUser, query: any) {
+  const year = yearParam(query?.year);
+  const scope = branchFilter(user, query?.branch);
+  const months = yearMonths(year);
+  const [entries, names, staff] = await Promise.all([
+    PayrollEntry.find({ ...scope, month: { $gte: months[0], $lte: months[11] } }).sort({ month: 1 }).lean(),
+    branchNames(),
+    staffOptions(scope),
+  ]);
+  const people = await User.find({ _id: { $in: [...new Set(entries.map((e) => String(e.user)))] } })
+    .select("name active")
+    .lean();
+  const personMap = new Map(people.map((p) => [String(p._id), p]));
+  const rows = new Map<string, any>();
+  for (const e of entries) {
+    const key = String(e.user);
+    const person = personMap.get(key);
+    const row =
+      rows.get(key) ??
+      {
+        key,
+        user: key,
+        name: person?.name ?? e.name,
+        active: person?.active !== false,
+        branch: e.branch ? String(e.branch) : null,
+        branchName: e.branch ? (names.get(String(e.branch)) ?? "") : "",
+        position: "",
+        months: Array<number | null>(12).fill(null),
+        locked: Array<boolean>(12).fill(false),
+        notes: Array<string>(12).fill(""),
+        total: 0,
+      };
+    const i = Number(e.month.slice(5, 7)) - 1;
+    row.months[i] = e.salary;
+    row.locked[i] = hasPayments(e);
+    row.notes[i] = e.notes ?? "";
+    // El cargo que se muestra es el del último mes cargado (como "Cargo / detalle" del Excel).
+    row.position = e.position || row.position;
+    row.total += e.salary;
+    rows.set(key, row);
+  }
+  const list = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const monthTotals = Array.from({ length: 12 }, (_, i) => list.reduce((s, r) => s + (r.months[i] ?? 0), 0));
+  return { year, rows: list, monthTotals, total: monthTotals.reduce((s, n) => s + n, 0), staff };
+}
+
+/**
+ * PUT /admin/finance/payroll/salary — `{ user, month, salary (centavos) | null, position?, branch? }`.
+ * Crea la fila del mes si no existe (`position`/`branch` solo se usan al crearla); `salary` null la quita (si no tiene pagos de quincena).
+ */
+export async function saveSalary(user: SessionUser, body: any) {
+  const month = monthParam(body?.month);
+  const userId = assertObjectId(String(body?.user ?? ""), "el colaborador");
+  const entry = await PayrollEntry.findOne({ month, user: userId });
+  if (entry?.branch) branchFilter(user, String(entry.branch));
+  const empty = body?.salary === null || body?.salary === undefined || body?.salary === "";
+  if (empty) {
+    if (!entry) return { ok: true, salary: null };
+    if (hasPayments(entry))
+      throw new CustomError("Ese mes ya tiene pagos de quincena registrados: pon 0 o borra primero los pagos", 409);
+    await entry.deleteOne();
+    return { ok: true, salary: null };
+  }
+  const salary = cents(body.salary, "El sueldo");
+  if (entry) {
+    // Solo el sueldo: el cargo de cada mes se queda como estaba ("Lavador - solo hasta JUL").
+    entry.salary = salary;
+    await entry.save();
+    return { ok: true, salary };
+  }
+  const staff = await User.findById(userId).lean();
+  if (!staff) throw new CustomError("Colaborador no encontrado", 404);
+  const branch = body?.branch ? assertObjectId(String(body.branch), "la sucursal") : staff.branches?.[0] ?? null;
+  if (branch) branchFilter(user, String(branch));
+  await PayrollEntry.create({
+    month,
+    user: userId,
+    name: staff.name,
+    position: body?.position !== undefined ? str(body.position, 80) : staffPosition(staff),
+    branch,
+    salary,
+  });
+  return { ok: true, salary };
+}
+
+/** POST /admin/finance/payroll/copy — `{ from, to, branch? }`: repite los sueldos sin pisar lo ya escrito. */
+export async function copyPayroll(user: SessionUser, body: any) {
+  const from = monthParam(body?.from);
+  const to = monthParam(body?.to);
+  if (from === to) throw new CustomError("Elige meses distintos", 400);
+  const scope = branchFilter(user, body?.branch);
+  const source = await PayrollEntry.find({ month: from, ...scope }).lean();
+  if (!source.length) throw new CustomError("Ese mes no tiene sueldos para copiar", 404);
+  const r = await PayrollEntry.bulkWrite(
+    source.map((e) => ({
+      updateOne: {
+        filter: { month: to, user: e.user },
+        update: {
+          $setOnInsert: { month: to, user: e.user, name: e.name, position: e.position, branch: e.branch, salary: e.salary },
+        },
+        upsert: true,
+      },
+    })),
+    { ordered: false },
+  );
+  return { ok: true, copied: r.upsertedCount, skipped: source.length - r.upsertedCount };
+}
+
+/** POST /admin/finance/payroll/remove-row — `{ user, year }`: quita al colaborador del año (sin tocar meses con pagos). */
+export async function removePayrollRow(user: SessionUser, body: any) {
+  const year = yearParam(body?.year);
+  const userId = assertObjectId(String(body?.user ?? ""), "el colaborador");
+  const months = yearMonths(year);
+  const entries = await PayrollEntry.find({ user: userId, month: { $gte: months[0], $lte: months[11] } });
+  let deleted = 0;
+  let kept = 0;
+  for (const e of entries) {
+    if (e.branch) branchFilter(user, String(e.branch));
+    if (hasPayments(e)) kept++;
+    else {
+      await e.deleteOne();
+      deleted++;
+    }
+  }
+  return { ok: true, deleted, kept };
 }

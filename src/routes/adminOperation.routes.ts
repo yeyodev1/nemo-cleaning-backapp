@@ -23,6 +23,10 @@ router.get("/goals", staff, operationController.monthGoals);
 router.put("/goals", staff, operationController.saveGoal);
 router.post("/goals/copy", staff, operationController.copyGoals);
 
+// Comisiones manuales (las que usan los reportes) y la calculadora FEE (solo referencia).
+router.get("/commissions/entries", staff, operationController.commissionEntries);
+router.put("/commissions/entries", admin, operationController.saveCommissionEntry);
+router.post("/commissions/entries/remove-row", admin, operationController.removeCommissionRow);
 router.get("/commissions", staff, operationController.commissionSheet);
 router.get("/commissions/rules", staff, operationController.commissionRule);
 router.put("/commissions/rules", admin, operationController.updateCommissionRule);
