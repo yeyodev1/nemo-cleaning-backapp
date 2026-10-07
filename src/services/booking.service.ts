@@ -716,7 +716,12 @@ export async function listReceivables(user: SessionUser, query: any) {
     status: { $in: ["confirmed", "completed"] },
     balance: { $gt: 0 },
   };
-  const items = await Booking.find(filter).sort({ startAt: 1 }).populate(POPULATE).lean();
+  // Con el historial importado son miles de filas: solo los campos que pinta la pestaña CxC.
+  const items = await Booking.find(filter)
+    .select("code date time total balance amountPaid status paymentStatus customer branch paymentConfirmation paymentAccount")
+    .sort({ startAt: 1 })
+    .populate("customer", "name phone")
+    .lean();
   return { items, total: items.length, totalBalance: items.reduce((s, b) => s + b.balance, 0) };
 }
 
