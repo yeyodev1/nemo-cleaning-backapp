@@ -29,7 +29,9 @@ export async function updateExpense(req: AuthRequest, res: Response) {
 }
 
 export async function deleteExpense(req: AuthRequest, res: Response) {
-  res.json(await expenseService.deleteExpense(String(req.params.id), req.user!));
+  res.json(
+    await expenseService.deleteExpense(String(req.params.id), req.user!, req.query.scope),
+  );
 }
 
 export async function incomeStatement(req: AuthRequest, res: Response) {

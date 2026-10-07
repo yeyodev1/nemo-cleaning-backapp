@@ -29,6 +29,9 @@ export interface IPayment extends Document {
   reviewedAt?: Date;
   /** Cuándo entró el dinero: base de ingresos, caja y estado de resultados. */
   paidAt?: Date;
+  /** Conciliación bancaria: se vio el dinero en el estado de cuenta. */
+  verifiedAt?: Date | null;
+  verifiedBy?: { id: string; name: string } | null;
   providerResponse?: unknown;
   createdAt: Date;
 }
@@ -55,6 +58,8 @@ const paymentSchema = new Schema<IPayment>(
     reviewedBy: { type: actorSchema },
     reviewedAt: { type: Date },
     paidAt: { type: Date },
+    verifiedAt: { type: Date, default: null },
+    verifiedBy: { type: actorSchema, default: null },
     // Respuesta cruda de Payphone para soporte: no sale en las respuestas.
     providerResponse: { type: Schema.Types.Mixed, select: false },
   },

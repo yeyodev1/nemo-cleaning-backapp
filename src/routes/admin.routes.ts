@@ -7,6 +7,7 @@ import * as peopleController from "../controllers/adminPeople.controller";
 import operationRoutes from "./adminOperation.routes";
 import { requireRoles } from "../middlewares/auth.middleware";
 import { uploadMiddleware } from "../middlewares/upload.middleware";
+import { commercialRoutes, financeRoutes } from "./adminAccounting.routes";
 
 /** authMiddleware ya corrió en routes/index.ts; aquí van los gates de rol. */
 const router = express.Router();
@@ -73,5 +74,9 @@ router.post("/uploads", any, uploadMiddleware.single("file"), catalogController.
 
 // Operación (fase 2): producción, novedades, turnos, metas y comisiones.
 router.use(operationRoutes);
+
+// Finanzas y gestión comercial (fase 2: reportes del Excel de gerencia)
+router.use("/finance", financeRoutes);
+router.use("/commercial", commercialRoutes);
 
 export default router;
