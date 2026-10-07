@@ -1,5 +1,6 @@
 import { CustomError } from "../errors/customError.error";
 import { Branch } from "../models/branch.model";
+import { Expense } from "../models/expense.model";
 import { PAYABLE_CATEGORIES, PAYABLE_METHODS, Payable } from "../models/payable.model";
 import { SessionUser } from "../types/AuthRequest";
 import { isValidDate, todayStr } from "../utils/date";
@@ -15,6 +16,64 @@ import { actor, branchFilter } from "../utils/scope";
 function statusOf(amount: number, paid: number): "pending" | "partial" | "paid" {
   if (paid <= 0) return amount === 0 ? "paid" : "pending";
   return paid >= amount ? "paid" : "partial";
+}
+
+/**
+ * Sin doble conteo: al marcar un pago como pagado (total o parcial) se crea o actualiza UN
+ * gasto enlazado (`Expense.payable`) por lo pagado, en la fecha de pago. Desmarcarlo o
+ * borrarlo quita ese gasto. Así el reporte quincenal suma gastos del periodo + lo PENDIENTE
+ * de los pagos, y lo ya pagado entra una sola vez (como gasto).
+ *
+ * Excepción, los sueldos: salen de Nómina (PayrollEntry) en el reporte quincenal y en el
+ * estado de resultados. Un pago de categoría "nomina" es solo el recordatorio de esa nómina:
+ * no genera gasto ni suma pendiente (si no, el sueldo contaría dos veces).
+ */
+export const PAYABLE_EXPENSE_CATEGORY: Record<string, string | null> = {
+  nomina: null,
+  comision: "comisiones",
+  proveedor: "otros",
+  servicios: "servicios_basicos",
+  alquiler: "arriendo",
+  credito: "otros",
+  marketing: "marketing",
+  reembolso: "otros",
+  impuestos: "impuestos",
+  otro: "otros",
+};
+const FIXED_PAYABLES = ["alquiler", "servicios", "credito"];
+
+/** Lo pendiente de un pago que todavía cuenta como costo (los de nómina van por Nómina). */
+export function payablePendingCost(p: { category: string; amount: number; paidAmount: number }): number {
+  if (!PAYABLE_EXPENSE_CATEGORY[p.category]) return 0;
+  return Math.max(0, p.amount - Math.min(p.paidAmount, p.amount));
+}
+
+export async function syncPayableExpense(p: any, user?: SessionUser) {
+  const category = PAYABLE_EXPENSE_CATEGORY[p.category] ?? null;
+  if (!category || !(p.paidAmount > 0)) {
+    await Expense.deleteOne({ payable: p._id });
+    return;
+  }
+  const method = p.method === "cash" || p.method === "card" ? p.method : "transfer";
+  const partial = p.paidAmount < p.amount;
+  const set: Record<string, any> = {
+    branch: p.branch ?? null,
+    date: p.paidDate || todayStr(),
+    category,
+    description: `${p.beneficiary}${partial ? " (abono)" : ""}`,
+    amount: p.paidAmount,
+    paymentMethod: method,
+    // Pagado desde la caja de la sucursal solo si la cuenta lo dice; si no, es de gerencia.
+    paidFrom: /caja/i.test(p.account ?? "") && p.branch ? "petty_cash" : "management",
+    supplier: p.beneficiary,
+    kind: FIXED_PAYABLES.includes(p.category) ? "fixed" : "variable",
+    recurring: false,
+  };
+  await Expense.updateOne(
+    { payable: p._id },
+    { $set: set, $setOnInsert: { payable: p._id, createdBy: user ? actor(user) : undefined } },
+    { upsert: true },
+  );
 }
 
 function scopeOf(user: SessionUser, query: any) {
@@ -101,7 +160,9 @@ export async function createPayable(body: any, user: SessionUser) {
   if (data.amount === undefined) throw new CustomError("El valor es obligatorio", 400);
   data.status = statusOf(data.amount, data.paidAmount);
   data.createdBy = actor(user);
-  return (await Payable.create(data)).toObject();
+  const created = await Payable.create(data);
+  await syncPayableExpense(created, user);
+  return created.toObject();
 }
 
 async function loadScoped(id: string, user: SessionUser) {
@@ -118,11 +179,13 @@ export async function updatePayable(id: string, body: any, user: SessionUser) {
   await applyFields(p, body, user);
   if (!p.beneficiary) throw new CustomError("Escribe el beneficiario o concepto", 400);
   await p.save();
+  await syncPayableExpense(p, user);
   return p.toObject();
 }
 
 export async function deletePayable(id: string, user: SessionUser) {
   const p = await loadScoped(id, user);
+  await Expense.deleteOne({ payable: p._id });
   await p.deleteOne();
   return { ok: true };
 }

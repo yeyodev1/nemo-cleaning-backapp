@@ -7,6 +7,7 @@ import { dateStrOf, dayRange, monthBounds } from "../utils/date";
 import { QTotals, monthParam, qAdd, qRound, qZero } from "../utils/fortnight";
 import { accountLabel, confirmationOf, tipOf } from "../utils/paymentAccount";
 import { branchFilter } from "../utils/scope";
+import { payablePendingCost } from "./payable.service";
 import { payrollRows } from "./payroll.service";
 
 /**
@@ -21,7 +22,10 @@ import { payrollRows } from "./payroll.service";
  *    Con todo registrado da 0; si no, hay pagos de más que no son propina.
  * 2. Cobrado — pagos aprobados por la fecha en que entró el dinero, por cuenta.
  * 3. Gastos por categoría, 4. Pagos por realizar (nómina + pagos), 5. Utilidad y liquidez:
- *    gastos totales = gastos desembolsados + total por pagar; utilidad = producción − gastos totales.
+ *    costos = gastos del periodo + nómina del mes (esperado) + lo PENDIENTE de los pagos por realizar;
+ *    utilidad = producción − costos. Lo ya pagado de un pago por realizar está en gastos (se
+ *    registra solo al marcarlo pagado) y los pagos de categoría nómina no suman: el sueldo
+ *    viene de Nómina. Así nada cuenta dos veces.
  */
 
 type AccountRow = { account: string } & QTotals;
@@ -167,6 +171,21 @@ async function toPay(scope: Record<string, any>, month: string) {
   ]);
   const total = qZero();
   const paid = qZero();
+  const payrollTotal = qZero();
+  const payrollPending = qZero();
+  const payablesPending = qZero();
+  for (const r of payroll) {
+    payrollTotal.q1 += r.q1.expected;
+    payrollTotal.q2 += r.q2.expected;
+    payrollPending.q1 += Math.max(0, r.q1.expected - (r.q1.paid ?? 0));
+    payrollPending.q2 += Math.max(0, r.q2.expected - (r.q2.paid ?? 0));
+  }
+  for (const p of payables) {
+    const pend = payablePendingCost(p);
+    if (p.fortnight === 1) payablesPending.q1 += pend;
+    else payablesPending.q2 += pend;
+  }
+  for (const t of [payrollTotal, payrollPending, payablesPending]) t.total = t.q1 + t.q2;
   const payrollLines = payroll.map((r) => {
     total.q1 += r.q1.expected;
     total.q2 += r.q2.expected;
@@ -202,6 +221,8 @@ async function toPay(scope: Record<string, any>, month: string) {
       paidDate: p.paidDate,
       method: p.method,
       reference: p.reference,
+      // Los de nómina no suman a la utilidad (el sueldo sale de Nómina).
+      countsInProfit: p.category !== "nomina",
     };
   });
   total.total = total.q1 + total.q2;
@@ -212,6 +233,9 @@ async function toPay(scope: Record<string, any>, month: string) {
     total,
     paid,
     pending: { q1: total.q1 - paid.q1, q2: total.q2 - paid.q2, total: total.total - paid.total },
+    payrollTotal,
+    payrollPending,
+    payablesPending,
   };
 }
 
@@ -243,8 +267,9 @@ export async function fortnightReport(user: SessionUser, query: any) {
   // Las propinas cobradas con el pago entraron a cuenta pero no son producción: se restan.
   const accounted = add(rec.received, cashAvailable, gastos.cashOut, pendingCollection, rec.barter, rec.lost);
   const difference = sub(sub(accounted, rec.production), rec.tips);
-  const totalCosts = add(gastos.total, pagos.total);
+  const totalCosts = add(gastos.total, pagos.payrollTotal, pagos.payablesPending);
   const profit = sub(rec.production, totalCosts);
+  const pendingPayments = add(pagos.payrollPending, pagos.payablesPending);
 
   return {
     month,
@@ -270,14 +295,17 @@ export async function fortnightReport(user: SessionUser, query: any) {
     expenses: { byCategory: gastos.byCategory, total: gastos.total },
     toPay: pagos,
     profit: {
+      expenses: gastos.total,
+      payroll: pagos.payrollTotal,
+      payablesPending: pagos.payablesPending,
       totalCosts: qRound(totalCosts),
       profit: qRound(profit),
       margin: ratio(profit, rec.production),
     },
     liquidity: {
       inAccounts: qRound(rec.received),
-      pendingPayments: pagos.pending,
-      available: qRound(sub(rec.received, pagos.pending)),
+      pendingPayments,
+      available: qRound(sub(rec.received, pendingPayments)),
     },
   };
 }

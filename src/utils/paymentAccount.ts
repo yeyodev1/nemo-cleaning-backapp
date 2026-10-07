@@ -32,7 +32,8 @@ export function accountLabel(
 export function confirmationOf(booking: { paymentConfirmation?: unknown; paymentAccount?: unknown }): string {
   const c = typeof booking.paymentConfirmation === "string" ? booking.paymentConfirmation : "";
   if (c === "exchange" || c === "lost") return c;
-  if (typeof booking.paymentAccount === "string" && /^canje$/i.test(booking.paymentAccount.trim()))
+  // Canje, Cortesía y Plan mensual (prepagado) no se cobran pedido a pedido.
+  if (typeof booking.paymentAccount === "string" && SETTLED_ACCOUNT_RE.test(booking.paymentAccount))
     return "exchange";
   return "";
 }
@@ -41,3 +42,25 @@ export function tipOf(booking: { tip?: unknown }): number {
   const n = Number(booking.tip);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
+
+/**
+ * Pedidos que no dejan deuda aunque no tengan un pago registrado: "Plan mensual" (prepagado
+ * en el plan), "Canje" y "Cortesía". No son cuentas por cobrar ni su saldo cuenta como deuda.
+ */
+export const SETTLED_ACCOUNT_RE = /^\s*(plan mensual|canje|cortes[ií]a)\s*$/i;
+
+export function isSettledWithoutPayment(booking: { paymentConfirmation?: unknown; paymentAccount?: unknown }) {
+  if (booking.paymentConfirmation === "exchange") return true;
+  return typeof booking.paymentAccount === "string" && SETTLED_ACCOUNT_RE.test(booking.paymentAccount);
+}
+
+/**
+ * Filtro Mongo de lo que SÍ es "Por cobrar": saldo > 0, sin plan mensual / canje / cortesía,
+ * sin perdidas (van aparte) y sin transferencias en revisión (eso es "Por confirmar").
+ */
+export const RECEIVABLE_MATCH = {
+  balance: { $gt: 0 },
+  paymentConfirmation: { $nin: ["exchange", "lost"] },
+  paymentAccount: { $not: SETTLED_ACCOUNT_RE },
+  paymentStatus: { $ne: "review" },
+};

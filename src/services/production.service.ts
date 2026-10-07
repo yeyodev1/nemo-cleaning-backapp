@@ -15,6 +15,7 @@ import { User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
 import { isValidDate, isValidTime, todayStr, toDateTime } from "../utils/date";
 import { assertObjectId, cents, escapeRegex, paginated, str } from "../utils/http";
+import { RECEIVABLE_MATCH, isSettledWithoutPayment } from "../utils/paymentAccount";
 import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
 import { listPaymentAccounts, methodOfAccount } from "./paymentAccount.service";
 import { confirmIfPending, manualTransactionId, recalculatePayments, reviewPayment } from "./payment.service";
@@ -249,7 +250,9 @@ function rowOf(b: any) {
     paymentAccount: b.paymentAccount ?? "",
     paymentConfirmation: b.paymentConfirmation ?? "pending_confirmation",
     paymentStatus: b.paymentStatus,
-    balance: b.balance,
+    // Plan mensual / canje / cortesía no dejan deuda: saldo 0 en la hoja.
+    balance: isSettledWithoutPayment(b) ? 0 : b.balance,
+    settled: isSettledWithoutPayment(b),
     notes: b.notes ?? "",
     novedades: (b.novedades ?? []).length,
   };
@@ -276,7 +279,7 @@ export async function listProduction(user: SessionUser, query: any) {
   const limit = Math.min(max, Math.max(1, Math.floor(Number(query?.limit)) || 50));
   const page = Math.max(1, Math.floor(Number(query?.page)) || 1);
 
-  const [items, total, sums] = await Promise.all([
+  const [items, total, sums, owed] = await Promise.all([
     Booking.find(filter).sort({ date: -1, time: -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate(POPULATE).lean(),
     Booking.countDocuments(filter),
     Booking.aggregate([
@@ -291,6 +294,10 @@ export async function listProduction(user: SessionUser, query: any) {
         },
       },
     ]),
+    Booking.aggregate<{ _id: string; total: number }>([
+      { $match: { ...filter, balance: { $gt: 0 }, paymentConfirmation: { $nin: ["exchange", "lost"] }, paymentAccount: RECEIVABLE_MATCH.paymentAccount } },
+      { $group: { _id: { $cond: [{ $eq: ["$paymentStatus", "review"] }, "review", "owed"] }, total: { $sum: "$balance" } } },
+    ]),
   ]);
   const byConfirmation: Record<string, { count: number; total: number; balance: number }> = {};
   for (const s of sums)
@@ -304,8 +311,10 @@ export async function listProduction(user: SessionUser, query: any) {
       production: sums.reduce((a, s) => a + s.total, 0),
       tip: sums.reduce((a, s) => a + s.tip, 0),
       balance: sums.reduce((a, s) => a + s.balance, 0),
-      // Por cobrar de verdad: canje y perdida no se van a cobrar.
-      receivable: sums.filter((s) => !["lost", "exchange"].includes(s._id)).reduce((a, s) => a + s.balance, 0),
+      // Por cobrar de verdad: sin plan mensual / canje / cortesía, perdidas ni transferencias en revisión.
+      receivable: owed.find((o) => o._id === "owed")?.total ?? 0,
+      // Transferencias en revisión: "Por confirmar", no es deuda.
+      toConfirm: owed.find((o) => o._id === "review")?.total ?? 0,
       byConfirmation,
     },
   };

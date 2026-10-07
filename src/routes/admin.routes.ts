@@ -41,7 +41,8 @@ router.get("/reports/production", staff, financeController.production);
 router.get("/reports/cash", staff, financeController.cash);
 
 // Catálogo, sucursales y configuración
-router.get("/services", admin, catalogController.listServices);
+// Lectura también para el administrador de sucursal: "Registrar servicio" necesita el catálogo.
+router.get("/services", staff, catalogController.listServices);
 router.post("/services", admin, catalogController.createService);
 router.get("/services/:id", admin, catalogController.getService);
 router.patch("/services/:id", admin, catalogController.updateService);

@@ -204,7 +204,7 @@ export async function repeatFixed(user: SessionUser, body: any) {
       skipped++;
       continue;
     }
-    const { _id, createdAt, updatedAt, ...rest } = src as any;
+    const { _id, createdAt, updatedAt, payable, ...rest } = src as any;
     await Expense.create({
       ...rest,
       seriesKey,
@@ -230,8 +230,15 @@ async function loadScoped(id: string, user: SessionUser) {
   return expense;
 }
 
+/** Los gastos que nacen de "Pagos por realizar" se cambian desde allí para no descuadrarse. */
+function assertNotLinked(expense: any) {
+  if (expense.payable)
+    throw new CustomError("Este gasto viene de Pagos por realizar: cámbialo o desmárcalo desde allí", 409);
+}
+
 export async function updateExpense(id: string, body: any, user: SessionUser) {
   const expense = await loadScoped(id, user);
+  assertNotLinked(expense);
   await applyFields(expense, body, user);
   if (!expense.description) throw new CustomError("Describe el gasto", 400);
   await expense.save();
@@ -241,6 +248,7 @@ export async function updateExpense(id: string, body: any, user: SessionUser) {
 /** `scope = "series"` borra todas las cuotas de un diferido (no aplica a los recurrentes). */
 export async function deleteExpense(id: string, user: SessionUser, scope?: unknown) {
   const expense = await loadScoped(id, user);
+  assertNotLinked(expense);
   if (scope === "series" && expense.installment && expense.seriesKey) {
     const r = await Expense.deleteMany({ seriesKey: expense.seriesKey, installment: { $ne: null } });
     return { ok: true, deleted: r.deletedCount };

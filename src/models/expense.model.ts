@@ -27,6 +27,9 @@ export const EXPENSE_CATEGORIES = [
   "reparaciones",
   "uniformes",
   "imprevistos",
+  // Comisiones pagadas desde "Pagos por realizar". El estado de resultados no las suma aquí:
+  // salen del cálculo del FEE (commissionTotalsByMonth).
+  "comisiones",
 ] as const;
 export const PAID_FROM = ["petty_cash", "management"] as const;
 export const EXPENSE_KINDS = ["variable", "fixed"] as const;
@@ -54,6 +57,8 @@ export interface IExpense extends Document {
   installment?: { number: number; count: number; totalAmount: number } | null;
   /** Anticipos: a quién se le adelantó (descuenta en Nómina). */
   employee?: Types.ObjectId | null;
+  /** Gasto creado al marcar pagado un "Pago por realizar": se edita desde allí, no aquí. */
+  payable?: Types.ObjectId | null;
   createdAt: Date;
 }
 
@@ -81,6 +86,7 @@ const expenseSchema = new Schema<IExpense>(
       default: null,
     },
     employee: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    payable: { type: Schema.Types.ObjectId, ref: "Payable", default: null },
   },
   { timestamps: true, versionKey: false },
 );
@@ -88,5 +94,10 @@ const expenseSchema = new Schema<IExpense>(
 expenseSchema.index({ date: -1 });
 expenseSchema.index({ branch: 1, date: -1 });
 expenseSchema.index({ seriesKey: 1 });
+// Un pago por realizar tiene a lo sumo un gasto enlazado (la sincronización es idempotente).
+expenseSchema.index(
+  { payable: 1 },
+  { unique: true, partialFilterExpression: { payable: { $type: "objectId" } } },
+);
 
 export const Expense = mongoose.model<IExpense>("Expense", expenseSchema);

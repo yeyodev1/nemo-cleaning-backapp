@@ -17,6 +17,7 @@ import {
   todayStr,
 } from "../utils/date";
 import { branchFilter } from "../utils/scope";
+import { RECEIVABLE_MATCH } from "../utils/paymentAccount";
 
 /**
  * Regla de negocio: ingreso = pagos aprobados (paidAt), no el total de los
@@ -204,6 +205,37 @@ export async function cashReport(user: SessionUser, query: any) {
   };
 }
 
+/** Producción de hoy, de la quincena (Q1 1–15 / Q2 16–fin) y del mes calendario en curso. */
+async function productionSnapshot(scope: Record<string, any>, today: string) {
+  const month = today.slice(0, 7);
+  const q = Number(today.slice(8, 10)) <= 15 ? 1 : 2;
+  const qFrom = q === 1 ? `${month}-01` : `${month}-16`;
+  const rows = await Booking.aggregate<{ _id: string; total: number; count: number }>([
+    {
+      $match: {
+        ...scope,
+        date: { $gte: `${month}-01`, $lte: `${month}-31` },
+        status: { $nin: INACTIVE_STATUSES },
+      },
+    },
+    { $group: { _id: "$date", total: { $sum: "$total" }, count: { $sum: 1 } } },
+  ]);
+  const sum = (fn: (d: string) => boolean) =>
+    rows.filter((r) => fn(r._id)).reduce((a, r) => ({ amount: a.amount + r.total, bookings: a.bookings + r.count }), {
+      amount: 0,
+      bookings: 0,
+    });
+  return {
+    fortnight: q,
+    fortnightFrom: qFrom,
+    today: sum((d) => d === today),
+    fortnightToDate: sum((d) => d >= qFrom && d <= today),
+    monthToDate: sum((d) => d <= today),
+    // Lo agendado que falta del mes (pedidos futuros ya cargados).
+    monthScheduled: sum((d) => d > today),
+  };
+}
+
 export async function dashboard(user: SessionUser, query: any) {
   const scope = branchFilter(user, query?.branch);
   const { from, to, start, end } = parseRange(query?.from, query?.to);
@@ -220,6 +252,8 @@ export async function dashboard(user: SessionUser, query: any) {
     newOfficeQuotes,
     prod,
     upcoming,
+    toConfirm,
+    productionNow,
   ] = await Promise.all([
     Booking.find({ ...scope, date: today, status: { $nin: INACTIVE_STATUSES } })
       .select("status")
@@ -232,7 +266,7 @@ export async function dashboard(user: SessionUser, query: any) {
     ]),
     Payment.countDocuments({ ...scope, status: "review" }),
     Booking.aggregate<{ total: number }>([
-      { $match: { ...scope, status: { $in: ["confirmed", "completed"] }, balance: { $gt: 0 } } },
+      { $match: { ...scope, status: { $nin: INACTIVE_STATUSES }, date: { $lte: today }, ...RECEIVABLE_MATCH } },
       { $group: { _id: null, total: { $sum: "$balance" } } },
     ]),
     OfficeQuote.countDocuments({
@@ -256,6 +290,11 @@ export async function dashboard(user: SessionUser, query: any) {
         { path: "operators", select: "name color" },
       ])
       .lean(),
+    Payment.aggregate<{ total: number }>([
+      { $match: { ...scope, status: "review" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    productionSnapshot(scope, today),
   ]);
 
   const incomeByDayMap = new Map<string, number>();
@@ -285,7 +324,11 @@ export async function dashboard(user: SessionUser, query: any) {
       averageTicket: periodBookings ? Math.round(bookedTotal / periodBookings) : 0,
     },
     pendingTransfers,
+    // Monto de transferencias en revisión ("Por confirmar"): no es deuda del cliente.
+    toConfirm: toConfirm[0]?.total ?? 0,
     receivables: receivables[0]?.total ?? 0,
+    // Producción (lo facturado por servicios hechos) de hoy, la quincena y el mes en curso.
+    production: productionNow,
     newOfficeQuotes,
     incomeByDay: daysBetween(from, to).map((date) => ({
       date,

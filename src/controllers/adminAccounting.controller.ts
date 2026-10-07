@@ -60,6 +60,9 @@ export async function deletePayroll(req: AuthRequest, res: Response) {
 export async function cashRegister(req: AuthRequest, res: Response) {
   res.json(await cash.cashRegister(req.user!, req.query));
 }
+export async function updateCashStart(req: AuthRequest, res: Response) {
+  res.json(await cash.updateCashStart(req.body, req.user!));
+}
 export async function createMovement(req: AuthRequest, res: Response) {
   res.status(201).json(await cash.createMovement(req.body, req.user!));
 }

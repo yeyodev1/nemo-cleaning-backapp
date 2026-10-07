@@ -30,6 +30,7 @@ finance.patch("/payroll/:id", admin, c.updatePayroll);
 finance.delete("/payroll/:id", admin, c.deletePayroll);
 
 finance.get("/cash", staff, c.cashRegister);
+finance.patch("/cash/start", admin, c.updateCashStart);
 finance.post("/cash/movements", staff, c.createMovement);
 finance.patch("/cash/movements/:id", staff, c.updateMovement);
 finance.delete("/cash/movements/:id", staff, c.deleteMovement);

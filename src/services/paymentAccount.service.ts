@@ -35,6 +35,8 @@ export async function listPaymentAccounts(): Promise<PaymentAccount[]> {
     { label: "Tarjeta (Payphone)", method: "card" },
     { label: "Plan mensual", method: null },
     { label: "Canje", method: null },
+    // Como en la Base del Excel: sin cobro, no queda como cuenta por cobrar.
+    { label: "Cortesía", method: null },
   ];
 }
 

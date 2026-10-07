@@ -1,6 +1,7 @@
+import { Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import { Booking } from "../models/booking.model";
-import { Branch } from "../models/branch.model";
+import { Branch, DEFAULT_CASH_START } from "../models/branch.model";
 import { CASH_CONCEPTS, CashMovement } from "../models/cashMovement.model";
 import { Expense } from "../models/expense.model";
 import { Payment } from "../models/payment.model";
@@ -14,25 +15,59 @@ import { actor, branchFilter } from "../utils/scope";
  * Registro de caja (hoja "Registro de caja"): saldo inicial + ingresos − egresos = saldo,
  * fila por fila. Entran solos los cobros en EFECTIVO (por la fecha del pago) y salen solos
  * los gastos de CAJA MENOR pagados en efectivo; el resto son movimientos manuales
- * (propina en efectivo, entrega a gerencia, reposición, ajuste). El saldo inicial del
- * periodo es todo lo acumulado antes del primer día.
+ * (propina en efectivo, entrega a gerencia, reposición, ajuste).
+ *
+ * Inicio del registro: cada sucursal tiene una fecha de inicio y un saldo inicial
+ * (`Branch.cashRegister`, por defecto 2026-10-01 y $0). Solo cuentan los movimientos desde
+ * ese día: el historial importado trae los cobros en efectivo pero no las entregas a
+ * gerencia, y sumarlo inflaría el saldo. El saldo inicial del periodo = saldo inicial del
+ * registro + lo acumulado entre el inicio y el día anterior a `from`.
  */
 
 const PETTY_CASH = { paidFrom: "petty_cash", paymentMethod: "cash" };
 
-async function sumBefore(scope: Record<string, any>, from: string) {
-  const start = dayRange(from).start;
+interface CashStart {
+  branch: string;
+  name: string;
+  startDate: string;
+  openingBalance: number;
+}
+
+async function cashStarts(scope: Record<string, any>): Promise<CashStart[]> {
+  const branches = await Branch.find(scope.branch ? { _id: scope.branch } : {})
+    .select("name cashRegister")
+    .sort({ name: 1 })
+    .lean();
+  return branches.map((b: any) => ({
+    branch: String(b._id),
+    name: b.name,
+    startDate: b.cashRegister?.startDate || DEFAULT_CASH_START,
+    openingBalance: b.cashRegister?.openingBalance ?? 0,
+  }));
+}
+
+/** Suma de una sucursal entre dos fechas (incluye `from`, excluye `toExcl`). */
+async function sumBetween(branch: string, from: string, toExcl: string) {
+  if (from >= toExcl) return 0;
+  const b = new Types.ObjectId(branch);
   const [pay, exp, mov] = await Promise.all([
     Payment.aggregate<{ total: number }>([
-      { $match: { ...scope, status: "approved", method: "cash", paidAt: { $lt: start } } },
+      {
+        $match: {
+          branch: b,
+          status: "approved",
+          method: "cash",
+          paidAt: { $gte: dayRange(from).start, $lt: dayRange(toExcl).start },
+        },
+      },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
     Expense.aggregate<{ total: number }>([
-      { $match: { ...scope, ...PETTY_CASH, date: { $lt: from } } },
+      { $match: { branch: b, ...PETTY_CASH, date: { $gte: from, $lt: toExcl } } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
     CashMovement.aggregate<{ _id: string; total: number }>([
-      { $match: { ...scope, date: { $lt: from } } },
+      { $match: { branch: b, date: { $gte: from, $lt: toExcl } } },
       { $group: { _id: "$direction", total: { $sum: "$amount" } } },
     ]),
   ]);
@@ -43,7 +78,7 @@ async function sumBefore(scope: Record<string, any>, from: string) {
 
 interface Row {
   key: string;
-  source: "payment" | "expense" | "manual";
+  source: "payment" | "expense" | "manual" | "opening";
   id: string;
   date: string;
   at: number;
@@ -57,18 +92,36 @@ interface Row {
 }
 
 export async function cashRegister(user: SessionUser, query: any) {
-  const { from, to, start, end } = parseRange(query?.from ?? todayStr(), query?.to ?? query?.from ?? todayStr());
+  const { from, to, end } = parseRange(query?.from ?? todayStr(), query?.to ?? query?.from ?? todayStr());
   const scope = branchFilter(user, query?.branch);
-  const [opening, payments, expenses, manual] = await Promise.all([
-    sumBefore(scope, from),
-    Payment.find({ ...scope, status: "approved", method: "cash", paidAt: { $gte: start, $lt: end } })
+  const starts = await cashStarts(scope);
+  // Por sucursal, el periodo efectivo empieza en el mayor entre `from` y su inicio de caja.
+  const live = starts
+    .map((s) => ({ ...s, eff: s.startDate > from ? s.startDate : from }))
+    .filter((s) => s.eff <= to);
+  const cond = <T>(fn: (s: (typeof live)[number]) => T) => (live.length ? { $or: live.map(fn) } : { _id: null });
+  const [openings, payments, expenses, manual] = await Promise.all([
+    Promise.all(
+      starts.map(async (s) =>
+        from > s.startDate ? s.openingBalance + (await sumBetween(s.branch, s.startDate, from)) : 0,
+      ),
+    ),
+    Payment.find({
+      status: "approved",
+      method: "cash",
+      ...cond((s) => ({ branch: new Types.ObjectId(s.branch), paidAt: { $gte: dayRange(s.eff).start, $lt: end } })),
+    })
       .populate("customer", "name")
       .lean(),
-    Expense.find({ ...scope, ...PETTY_CASH, date: { $gte: from, $lte: to } }).lean(),
-    CashMovement.find({ ...scope, date: { $gte: from, $lte: to } })
+    Expense.find({
+      ...PETTY_CASH,
+      ...cond((s) => ({ branch: new Types.ObjectId(s.branch), date: { $gte: s.eff, $lte: to } })),
+    }).lean(),
+    CashMovement.find(cond((s) => ({ branch: new Types.ObjectId(s.branch), date: { $gte: s.eff, $lte: to } })))
       .populate("operator", "name")
       .lean(),
   ]);
+  const opening = openings.reduce((a, n) => a + n, 0);
   const bookings = await Booking.find({ _id: { $in: payments.map((p) => p.booking) } })
     .select("operators")
     .populate("operators", "name")
@@ -78,6 +131,23 @@ export async function cashRegister(user: SessionUser, query: any) {
   );
 
   const rows: Row[] = [
+    // El día de inicio del registro abre con su saldo inicial.
+    ...live
+      .filter((s) => s.startDate >= from)
+      .map((s) => ({
+        key: `o${s.branch}`,
+        source: "opening" as const,
+        id: s.branch,
+        date: s.startDate,
+        at: -1,
+        concept: "register_start",
+        operator: "",
+        detail: `Inicio del registro de caja · ${s.name}`,
+        in: s.openingBalance,
+        out: 0,
+        balance: 0,
+        branch: s.branch,
+      })),
     ...payments.map((p) => ({
       key: `p${p._id}`,
       source: "payment" as const,
@@ -136,10 +206,27 @@ export async function cashRegister(user: SessionUser, query: any) {
     totalIn,
     totalOut,
     closing: opening + totalIn - totalOut,
+    starts,
     production: rows.filter((r) => r.source === "payment").reduce((s, r) => s + r.in, 0),
     pettyCash: rows.filter((r) => r.source === "expense").reduce((s, r) => s + r.out, 0),
     rows: rows.map(({ at, ...r }) => r),
   };
+}
+
+/** Gerencia fija desde qué día cuenta la caja de una sucursal y con qué saldo arranca. */
+export async function updateCashStart(body: any, user: SessionUser) {
+  if (user.role !== "admin") throw new CustomError("Solo gerencia cambia el inicio de la caja", 403);
+  const id = assertObjectId(body?.branch, "la sucursal");
+  const branch = await Branch.findById(id);
+  if (!branch) throw new CustomError("Sucursal no encontrada", 404);
+  const current: any = branch.cashRegister ?? {};
+  const startDate = body?.startDate ?? current.startDate ?? DEFAULT_CASH_START;
+  if (!isValidDate(startDate)) throw new CustomError("Fecha de inicio inválida (YYYY-MM-DD)", 400);
+  const openingBalance =
+    body?.openingBalance !== undefined ? cents(body.openingBalance, "El saldo inicial") : (current.openingBalance ?? 0);
+  branch.cashRegister = { startDate, openingBalance };
+  await branch.save();
+  return { branch: String(branch._id), name: branch.name, startDate, openingBalance };
 }
 
 async function applyFields(target: any, body: any, user: SessionUser) {

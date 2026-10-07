@@ -149,7 +149,7 @@ export async function listPayments(user: SessionUser, query: any) {
     if (isValidDate(query.from)) filter.createdAt.$gte = dayRange(query.from).start;
     if (isValidDate(query.to)) filter.createdAt.$lt = dayRange(query.to).end;
   }
-  const [items, total] = await Promise.all([
+  const [items, total, sum] = await Promise.all([
     Payment.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -157,8 +157,10 @@ export async function listPayments(user: SessionUser, query: any) {
       .populate("customer", "name phone email")
       .lean(),
     Payment.countDocuments(filter),
+    Payment.aggregate<{ total: number }>([{ $match: filter }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
   ]);
-  return paginated(items, total, page, limit);
+  // Monto del filtro completo (p. ej. todo lo "Por confirmar"), no solo de la página.
+  return { ...paginated(items, total, page, limit), totalAmount: sum[0]?.total ?? 0 };
 }
 
 /** PATCH /admin/payments/:id/review — conciliación de transferencias. */

@@ -18,6 +18,7 @@ import { Customer } from "../models/customer.model";
 import { Payment } from "../models/payment.model";
 import { User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
+import { RECEIVABLE_MATCH } from "../utils/paymentAccount";
 import { isValidDate, isValidTime, todayStr, toDateTime } from "../utils/date";
 import {
   EMAIL_RE,
@@ -714,7 +715,8 @@ export async function listReceivables(user: SessionUser, query: any) {
   const filter = {
     ...branchFilter(user, query?.branch),
     status: { $in: ["confirmed", "completed"] },
-    balance: { $gt: 0 },
+    // Sin plan mensual / canje / cortesía, perdidas ni transferencias en revisión.
+    ...RECEIVABLE_MATCH,
   };
   // Con el historial importado son miles de filas: solo los campos que pinta la pestaña CxC.
   const items = await Booking.find(filter)

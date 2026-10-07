@@ -13,13 +13,15 @@ import { commissionTotalsByMonth } from "./commission.service";
  *   Ventas = PRODUCCIÓN (pedidos realizados por su fecha, no lo cobrado; lo cobrado va aparte).
  *   Sueldos = sueldo del mes en Nómina + gastos de categoría "sueldos".
  *   Gastos variables / fijos = gastos según su tipo, SIN anticipos (ya están dentro del sueldo)
- *   ni propinas (salen de caja pero entraron por cuenta: no son gasto de la empresa).
+ *   ni propinas (salen de caja pero entraron por cuenta: no son gasto de la empresa) ni
+ *   comisiones pagadas (ya están en Comisiones, que sale del FEE).
  *   Comisiones = commissionTotalsByMonth (FEE de operadores + supervisor).
  *   Total gastos = sueldos + variables + fijos + comisiones; Utilidad neta = ventas − total gastos;
  *   Margen neto = utilidad / ventas; Gastos/ventas = total gastos / ventas.
  */
 
-const EXCLUDED = ["anticipos", "propinas", "sueldos"];
+// "comisiones" (pagadas desde Pagos por realizar) ya están en Comisiones vía el FEE.
+const EXCLUDED = ["anticipos", "propinas", "sueldos", "comisiones"];
 
 interface MonthRow {
   month: number;
@@ -180,7 +182,7 @@ export async function monthlyDetail(user: SessionUser, query: any) {
   };
   const salaryTotal = salaryRows.reduce((s, r) => s + r.amount, 0);
   const excluded = expenses
-    .filter((e) => e.category === "anticipos" || e.category === "propinas")
+    .filter((e) => ["anticipos", "propinas", "comisiones"].includes(e.category))
     .reduce(
       (acc, e) => ({ ...acc, [e.category]: (acc[e.category] ?? 0) + e.amount }),
       {} as Record<string, number>,
