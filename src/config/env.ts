@@ -34,8 +34,8 @@ export const env = {
   FRONTEND_URL: optional("FRONTEND_URL", "http://localhost:5173").replace(/\/+$/, ""),
   API_PUBLIC_URL: optional("API_PUBLIC_URL", "").replace(/\/+$/, ""),
   SLACK_ERROR_WEBHOOK: optional("SLACK_ERROR_WEBHOOK", ""),
+  // Sin contraseña: la cuenta de gerencia entra con un código enviado a este correo.
   ADMIN_EMAIL: optional("ADMIN_EMAIL", "admin@nemocleaning.ec").toLowerCase(),
-  ADMIN_PASSWORD: optional("ADMIN_PASSWORD", ""),
   ADMIN_NAME: optional("ADMIN_NAME", "Gerencia Nemo"),
   RESEND_API_KEY: optional("RESEND_API_KEY", ""),
   RESEND_FROM_EMAIL: optional("RESEND_FROM_EMAIL", "Nemo Cleaning <reservas@nemocleaning.ec>"),

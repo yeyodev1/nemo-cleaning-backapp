@@ -3,6 +3,22 @@ import { CustomError } from "../errors/customError.error";
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+/** Correo normalizado (sin espacios, minúsculas): así se guarda y se busca siempre. */
+export function normalizeEmail(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 200);
+}
+
+/** Correo normalizado y válido, o 400. */
+export function requireEmail(value: unknown): string {
+  const email = normalizeEmail(value);
+  if (!email) throw new CustomError("Escribe tu correo", 400);
+  if (!EMAIL_RE.test(email)) throw new CustomError("El correo no es válido", 400);
+  return email;
+}
+
 export function assertObjectId(id: unknown, label = "el registro"): string {
   if (typeof id !== "string" || !isValidObjectId(id)) {
     throw new CustomError(`Identificador inválido para ${label}`, 400);

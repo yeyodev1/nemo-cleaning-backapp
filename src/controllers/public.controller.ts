@@ -8,6 +8,7 @@ import * as officeQuoteService from "../services/officeQuote.service";
 import * as payphoneService from "../services/payphone.service";
 import * as pricingService from "../services/pricing.service";
 import * as settingsService from "../services/settings.service";
+import { CustomerRequest } from "../types/AuthRequest";
 
 export async function branches(_req: Request, res: Response) {
   res.json(await branchService.listPublicBranches());
@@ -29,8 +30,8 @@ export async function quote(req: Request, res: Response) {
   res.json(await pricingService.quote(req.body));
 }
 
-export async function createBooking(req: Request, res: Response) {
-  res.status(201).json(await bookingService.createPublicBooking(req.body));
+export async function createBooking(req: CustomerRequest, res: Response) {
+  res.status(201).json(await bookingService.createPublicBooking(req.body, req.customer?.id));
 }
 
 export async function getBooking(req: Request, res: Response) {

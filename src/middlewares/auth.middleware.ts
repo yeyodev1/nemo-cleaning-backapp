@@ -2,7 +2,7 @@ import { Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
 import { User } from "../models/user.model";
-import { AuthRequest, JwtPayload, Role } from "../types/AuthRequest";
+import { AuthRequest, CUSTOMER_AUDIENCE, JwtPayload, Role } from "../types/AuthRequest";
 
 /**
  * Además de la firma, consulta la cuenta en cada petición: un token vive 30 días
@@ -16,11 +16,17 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
     return;
   }
 
-  let decoded: JwtPayload;
+  let decoded: Omit<JwtPayload, "type"> & { aud?: string | string[]; type?: string };
   try {
-    decoded = jwt.verify(authHeader.slice(7), env.JWT_SECRET) as JwtPayload;
+    decoded = jwt.verify(authHeader.slice(7), env.JWT_SECRET) as typeof decoded;
   } catch {
     res.status(401).json({ message: "Tu sesión venció. Inicia sesión de nuevo" });
+    return;
+  }
+  // Un token de cliente está firmado con el mismo secreto: no abre el panel.
+  const aud = Array.isArray(decoded.aud) ? decoded.aud : [decoded.aud];
+  if (decoded.type === "customer" || aud.includes(CUSTOMER_AUDIENCE) || !decoded.userId) {
+    res.status(401).json({ message: "Inicia sesión con tu cuenta del personal" });
     return;
   }
 

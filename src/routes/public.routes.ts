@@ -1,5 +1,6 @@
 import express from "express";
 import * as publicController from "../controllers/public.controller";
+import { optionalCustomerAuth } from "../middlewares/customerAuth.middleware";
 import { uploadMiddleware } from "../middlewares/upload.middleware";
 
 const router = express.Router();
@@ -10,7 +11,7 @@ router.get("/settings", publicController.settings);
 router.get("/availability", publicController.availability);
 router.post("/quote", publicController.quote);
 
-router.post("/bookings", publicController.createBooking);
+router.post("/bookings", optionalCustomerAuth, publicController.createBooking);
 router.get("/bookings/:code", publicController.getBooking);
 router.post(
   "/bookings/:code/transfer-proof",

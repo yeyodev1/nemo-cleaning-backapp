@@ -3,7 +3,15 @@ import { CustomError } from "../errors/customError.error";
 import { Booking } from "../models/booking.model";
 import { Customer } from "../models/customer.model";
 import { SessionUser } from "../types/AuthRequest";
-import { EMAIL_RE, assertObjectId, escapeRegex, paginated, parsePage, str } from "../utils/http";
+import {
+  EMAIL_RE,
+  assertObjectId,
+  escapeRegex,
+  normalizeEmail,
+  paginated,
+  parsePage,
+  str,
+} from "../utils/http";
 import { branchFilter } from "../utils/scope";
 
 export async function listCustomers(query: any) {
@@ -37,7 +45,7 @@ export async function getCustomer(id: string, user: SessionUser) {
 function applyFields(target: any, body: any) {
   if (body?.name !== undefined) target.name = str(body.name, 160);
   if (body?.email !== undefined) {
-    const email = str(body.email, 200).toLowerCase();
+    const email = normalizeEmail(body.email);
     if (email && !EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
     target.email = email;
   }

@@ -23,6 +23,7 @@ import {
   assertObjectId,
   cents,
   escapeRegex,
+  normalizeEmail,
   paginated,
   parsePage,
   str,
@@ -98,9 +99,15 @@ function parseInvoice(raw: any) {
  * Busca al cliente por correo (o teléfono) y actualiza sus datos con lo último
  * que escribió: así no se duplica cada vez que vuelve a pedir.
  */
-async function upsertCustomer(raw: any, branchId: Types.ObjectId, { strict }: { strict: boolean }) {
+async function upsertCustomer(
+  raw: any,
+  branchId: Types.ObjectId,
+  { strict, accountId }: { strict: boolean; accountId?: string },
+) {
+  // Con sesión de cliente el pedido va a su cuenta: manda el correo con el que ingresó.
+  const account = accountId ? await Customer.findById(accountId) : null;
   const name = str(raw?.name, 160);
-  const email = str(raw?.email, 200).toLowerCase();
+  const email = account?.email || normalizeEmail(raw?.email);
   const phone = str(raw?.phone, 30);
   const documentId = str(raw?.documentId, 20);
   if (!name) throw new CustomError("Escribe tu nombre", 400);
@@ -111,6 +118,7 @@ async function upsertCustomer(raw: any, branchId: Types.ObjectId, { strict }: { 
   if (!email && !phone) throw new CustomError("El cliente necesita correo o teléfono", 400);
 
   const existing =
+    account ??
     (email ? await Customer.findOne({ email }) : null) ??
     (phone ? await Customer.findOne({ phone }) : null);
   if (existing) {
@@ -235,6 +243,8 @@ async function findByAccess(codeRaw: unknown, tokenRaw: unknown) {
 interface CreateOptions {
   source: "web" | "admin";
   user?: SessionUser;
+  /** Customer con sesión iniciada en la web ("Mi cuenta"). */
+  customerId?: string;
   officeQuoteId?: Types.ObjectId;
 }
 
@@ -284,6 +294,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
   const invoice = parseInvoice(body?.invoice);
   const customer = await upsertCustomer(body?.customer, branch._id as Types.ObjectId, {
     strict: !isAdmin,
+    accountId: isAdmin ? undefined : opts.customerId,
   });
   const address = str(body?.address, 300) || customer.address;
   if (!address && !isAdmin) throw new CustomError("Escribe la dirección del servicio", 400);
@@ -366,8 +377,11 @@ export async function createBooking(body: any, opts: CreateOptions) {
   return { bookingId: booking._id, accessToken, payment };
 }
 
-export async function createPublicBooking(body: any) {
-  const { bookingId, accessToken, payment } = await createBooking(body, { source: "web" });
+export async function createPublicBooking(body: any, customerId?: string) {
+  const { bookingId, accessToken, payment } = await createBooking(body, {
+    source: "web",
+    customerId,
+  });
   const view = await publicViewById(bookingId);
   return { booking: view.booking, accessToken, ...(payment ? { payment } : {}) };
 }

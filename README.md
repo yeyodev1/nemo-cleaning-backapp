@@ -19,18 +19,19 @@ pnpm seed              # sucursales, catálogo, settings y cuenta admin (idempot
 pnpm dev               # http://localhost:8100/api/health
 ```
 
-La cuenta de gerencia sale de `ADMIN_EMAIL` / `ADMIN_PASSWORD` (y `ADMIN_NAME`). Se crea sola en el
-primer arranque si no existe; cambiar esas variables después no cambia una contraseña ya creada.
+La cuenta de gerencia sale de `ADMIN_EMAIL` (y `ADMIN_NAME`). Se crea sola en el primer arranque si no existe.
+No hay contraseñas: personal y clientes ingresan con un código de 6 dígitos que llega a su correo (Resend), así que
+`RESEND_API_KEY` es necesaria para poder entrar. `ADMIN_PASSWORD` ya no se usa (se ignora si sigue definida).
 
 ## Variables de entorno
 
 Ver `.env.example`. Obligatorias: `DB_URI`, `JWT_SECRET`. Sin `PAYPHONE_TOKEN`/`PAYPHONE_STORE_ID` el pago
-con tarjeta responde 503; sin `RESEND_API_KEY` no se envían correos; sin Cloudinary las subidas responden 503.
+con tarjeta responde 503; sin `RESEND_API_KEY` no se envían correos (ni los códigos de acceso: el login responde 502); sin Cloudinary las subidas responden 503.
 
 ## Despliegue
 
 Vercel con `api/index.ts` como función y todo reescrito a `/api` (`vercel.json`). Configura las mismas
-variables en el proyecto. La URL de respuesta de Payphone debe apuntar a `https://nemocleaning.ec/pago/respuesta`.
+variables en el proyecto. La URL de respuesta de Payphone debe apuntar a `https://nemocleaning.ec/pay-response`.
 
 ## Scripts
 

@@ -3,7 +3,7 @@ import { CustomError } from "../errors/customError.error";
 import { Branch } from "../models/branch.model";
 import { ROLES, User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
-import { EMAIL_RE, assertObjectId, escapeRegex, str } from "../utils/http";
+import { EMAIL_RE, assertObjectId, escapeRegex, normalizeEmail, str } from "../utils/http";
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -64,12 +64,9 @@ export async function getUser(id: string) {
 
 export async function createUser(body: any) {
   const name = str(body?.name, 120);
-  const email = str(body?.email, 200).toLowerCase();
-  const password = String(body?.password ?? "");
+  const email = normalizeEmail(body?.email);
   if (!name) throw new CustomError("El nombre es obligatorio", 400);
   if (!EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
-  if (password.length < 8)
-    throw new CustomError("La contraseña debe tener al menos 8 caracteres", 400);
   const role = String(body?.role ?? "operator");
   if (!(ROLES as readonly string[]).includes(role)) throw new CustomError("Rol inválido", 400);
   const color = body?.color && HEX.test(String(body.color)) ? String(body.color) : undefined;
@@ -77,7 +74,6 @@ export async function createUser(body: any) {
   const user = await User.create({
     name,
     email,
-    password,
     phone: str(body?.phone, 30),
     role,
     branches,
@@ -89,13 +85,13 @@ export async function createUser(body: any) {
 
 export async function updateUser(id: string, body: any, current: SessionUser) {
   assertObjectId(id, "el usuario");
-  const user = await User.findById(id).select("+password");
+  const user = await User.findById(id);
   if (!user) throw new CustomError("Usuario no encontrado", 404);
   const isSelf = String(user._id) === current.id;
 
   if (body?.name !== undefined) user.name = str(body.name, 120) || user.name;
   if (body?.email !== undefined) {
-    const email = str(body.email, 200).toLowerCase();
+    const email = normalizeEmail(body.email);
     if (!EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
     user.email = email;
   }
@@ -117,11 +113,6 @@ export async function updateUser(id: string, body: any, current: SessionUser) {
     if (isSelf && body.active === false)
       throw new CustomError("No puedes desactivar tu propia cuenta", 400);
     user.active = Boolean(body.active);
-  }
-  if (body?.password) {
-    if (String(body.password).length < 8)
-      throw new CustomError("La contraseña debe tener al menos 8 caracteres", 400);
-    user.password = String(body.password);
   }
   await user.save();
   return serializeUser(user);

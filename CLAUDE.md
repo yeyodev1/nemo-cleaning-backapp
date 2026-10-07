@@ -19,7 +19,7 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 ## Tech Stack
 
 - Express 5 + TypeScript (CommonJS, ES2024) + Mongoose 8 (`DB_URI`)
-- JWT Bearer (30 días), bcryptjs
+- JWT Bearer (30 días). Sin contraseñas: acceso con código de 6 dígitos por correo (`loginCode.service.ts`)
 - Payphone Cajita de Pagos (igual que Ponce Rent a Car), Cloudinary (multer en memoria, carpeta `nemo-cleaning/`), Resend
 - Vercel: `api/index.ts` es la función; `vercel.json` reescribe todo a `/api`. En el arranque en frío corre `seedBaseData()`.
 
@@ -27,7 +27,7 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 
 `Express → CORS → JSON → /api router → routes → controllers → services → models → globalErrorHandler`
 
-- **Routes** (`src/routes/`): endpoints y gates de rol (`requireRoles`). `/admin` y `/operator` pasan por `authMiddleware` en `routes/index.ts`.
+- **Routes** (`src/routes/`): endpoints y gates de rol (`requireRoles`). `/admin` y `/operator` pasan por `authMiddleware` y `/customer` por `customerAuthMiddleware` en `routes/index.ts`.
 - **Controllers**: parsean req, llaman al service y responden. Sin lógica.
 - **Services**: reglas de negocio. Lanzan `CustomError("mensaje en español", status)`.
 - **Models**: schemas Mongoose. `counter.model.ts` genera `NEMO-000001` y `COT-000001`.
@@ -40,7 +40,12 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 - **Pagos:** `payment.service.ts#recalculatePayments` es el único que calcula `amountPaid`, `balance` y `paymentStatus` desde los `Payment`. Ingreso = pagos `approved` por `paidAt`. Un pago aprobado confirma un pedido `pending`.
 - **Payphone:** `payphone.service.ts`. Cada intento es un `Payment` `pending` con `clientTransactionId` ≤ 50; la confirmación es idempotente y con reclamo atómico.
 - **Roles:** `admin` todo; `manager` limitado a sus `branches` (`utils/scope.ts`: pedir una sucursal ajena es 403) y solo caja menor; `operator` solo `/operator/*` sobre servicios asignados.
-- **Correos:** `bookingEmail.service.ts`. Nunca lanzan; un correo caído no rompe la petición.
+- **Correos:** `bookingEmail.service.ts`. Nunca lanzan; un correo caído no rompe la petición. Excepción: el código de
+  acceso (`loginCode.service.ts`) responde 502 si no sale, porque sin él no se puede entrar.
+- **Acceso:** `/auth/request-code` + `/auth/verify` (personal, solo cuentas activas) y `/customer-auth/*` (clientes; el primer
+  verify crea el Customer). `LoginCode` guarda solo el HMAC del código (pepper `JWT_SECRET`), TTL 10 min, 5 intentos,
+  60 s entre envíos, un solo uso. Tokens separados: `authMiddleware` rechaza los de cliente (`aud`/`type: "customer"`) y
+  `customerAuthMiddleware` solo acepta `aud: "customer"`. `POST /public/bookings` usa `optionalCustomerAuth`.
 - **Token público:** `Booking.accessToken` tiene `select: false`; solo sale al crear el pedido, en la confirmación de Payphone y como `trackingUrl` en el detalle del panel.
 
 ## Convenciones
