@@ -241,6 +241,7 @@ function rowOf(b: any) {
     time: b.time,
     branch: String(b.branch),
     status: b.status,
+    source: b.source ?? "web",
     customer: b.customer ? { _id: String(b.customer._id), name: b.customer.name, phone: b.customer.phone } : null,
     operators: (b.operators ?? []).map((o: any) => ({ _id: String(o._id), name: o.name, color: o.color })),
     zone: b.zone ?? "",

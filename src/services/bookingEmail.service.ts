@@ -16,7 +16,18 @@ const METHOD_LABEL: Record<string, string> = {
   card: "Tarjeta",
   cash: "Efectivo",
   transfer: "Transferencia",
+  whatsapp: "Por coordinar por WhatsApp",
 };
+
+/** Origen legible para el aviso al equipo. */
+function sourceLabel(b: { source?: string; history?: { by?: string }[] }): string {
+  if (b.source === "whatsapp")
+    return b.history?.[0]?.by === "Cliente (web)"
+      ? "Web · termina por WhatsApp"
+      : "WhatsApp (pedido rápido del panel)";
+  if (b.source === "web") return "Web";
+  return "Panel";
+}
 const DAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MONTHS = [
   "enero",
@@ -121,6 +132,9 @@ export function sendBookingCreated(bookingId: string) {
         : `<p>Realiza la transferencia y sube el comprobante desde el enlace de seguimiento.</p>${await bankBlock()}`;
     } else if (b.paymentMethod === "cash") {
       payText = "<p>Pagas en efectivo el día del servicio.</p>";
+    } else if (b.paymentMethod === "whatsapp") {
+      payText =
+        "<p>Coordinamos contigo el pago por WhatsApp. Si prefieres, también puedes pagar con tarjeta desde el enlace de seguimiento.</p>";
     } else {
       payText =
         "<p>Si aún no completaste el pago con tarjeta, puedes hacerlo desde el enlace de seguimiento.</p>";
@@ -135,16 +149,18 @@ export function sendBookingCreated(bookingId: string) {
     );
     await sendEmail(ctx.customer?.email ?? "", `Pedido ${b.code} recibido — Nemo Cleaning`, html);
 
+    const isWhatsapp = b.source === "whatsapp";
     const admin = layout(
-      `Nuevo pedido ${b.code}`,
+      isWhatsapp ? `Nuevo pedido por WhatsApp ${b.code}` : `Nuevo pedido ${b.code}`,
       `<p><strong>Cliente:</strong> ${escapeHtml(ctx.customer?.name)} · ${escapeHtml(ctx.customer?.phone)} · ${escapeHtml(ctx.customer?.email)}</p>
        ${summary(ctx)}
-       <p><strong>Origen:</strong> ${b.source === "web" ? "Web" : "Panel"}${b.notes ? `<br><strong>Notas:</strong> ${escapeHtml(b.notes)}` : ""}</p>
+       ${isWhatsapp ? `<p style="padding:10px 12px;border-radius:10px;background:#E7F8EE;color:#14663A"><strong>Pedido por WhatsApp:</strong> el cliente coordina el pago en el chat. Confírmalo desde el panel → Pedidos por WhatsApp.</p>` : ""}
+       <p><strong>Origen:</strong> ${sourceLabel(b)}${b.notes ? `<br><strong>Notas:</strong> ${escapeHtml(b.notes)}` : ""}</p>
        ${b.transferProofUrl ? button("Ver comprobante", b.transferProofUrl) : ""}`,
     );
     await sendEmail(
       await notifyRecipients(),
-      `Nuevo pedido ${b.code} · ${ctx.branch?.name ?? ""}`,
+      `${isWhatsapp ? "Nuevo pedido por WhatsApp" : "Nuevo pedido"} ${b.code} · ${ctx.branch?.name ?? ""}`,
       admin,
     );
   });

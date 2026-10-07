@@ -5,6 +5,7 @@ import * as financeController from "../controllers/adminFinance.controller";
 import * as officeQuoteController from "../controllers/adminOfficeQuote.controller";
 import * as peopleController from "../controllers/adminPeople.controller";
 import operationRoutes from "./adminOperation.routes";
+import whatsappRoutes from "./adminWhatsapp.routes";
 import { requireRoles } from "../middlewares/auth.middleware";
 import { uploadMiddleware } from "../middlewares/upload.middleware";
 import { commercialRoutes, financeRoutes } from "./adminAccounting.routes";
@@ -75,6 +76,9 @@ router.post("/uploads", any, uploadMiddleware.single("file"), catalogController.
 
 // Operación (fase 2): producción, novedades, turnos, metas y comisiones.
 router.use(operationRoutes);
+
+// Pedidos que terminan en WhatsApp: bandeja de los asesores y pedido rápido.
+router.use("/whatsapp", whatsappRoutes);
 
 // Finanzas y gestión comercial (fase 2: reportes del Excel de gerencia)
 router.use("/finance", financeRoutes);

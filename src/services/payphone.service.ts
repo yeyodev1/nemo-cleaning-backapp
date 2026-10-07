@@ -7,6 +7,7 @@ import { Customer } from "../models/customer.model";
 import { Payment } from "../models/payment.model";
 import { toInternationalPhone } from "../utils/http";
 import { sendPaymentApproved } from "./bookingEmail.service";
+import { CARD_ACCOUNT } from "../utils/paymentAccount";
 import { confirmIfPending, recalculatePayments } from "./payment.service";
 
 const CONFIRM_URL = "https://paymentbox.payphonetodoesposible.com/api/confirm";
@@ -191,7 +192,19 @@ export async function confirmPayphone(body: any) {
     },
   );
   await confirmIfPending(payment.booking, "Payphone");
-  await recalculatePayments(payment.booking);
+  const totals = await recalculatePayments(payment.booking);
+  // Pagado con el enlace (p. ej. un pedido por WhatsApp "por coordinar"): queda confirmado
+  // en la Base y con la cuenta de tarjeta, sin que el asesor tenga que tocar nada.
+  if (totals.paymentStatus === "paid") {
+    await Booking.updateOne(
+      { _id: payment.booking, paymentConfirmation: { $in: ["pending_confirmation", "pending_payment"] } },
+      { $set: { paymentConfirmation: "confirmed" } },
+    );
+    await Booking.updateOne(
+      { _id: payment.booking, paymentAccount: "" },
+      { $set: { paymentAccount: CARD_ACCOUNT } },
+    );
+  }
   await sendPaymentApproved(String(payment.booking), claimed.amount);
   return publicResult("approved", payment.booking, "Pago aprobado");
 }

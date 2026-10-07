@@ -56,6 +56,10 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
   `commissionTotalsByMonth` suma `CommissionEntry` (manual); el FEE de `commission.service.ts` es solo referencia y no
   entra a ningún reporte. Nómina por mes = `PayrollEntry` (`payroll.service.ts#payrollYear/saveSalary`); `monthlySalary`
   del Personal solo propone meses nuevos.
+- **Pedidos por WhatsApp** (`whatsapp.service.ts`, `/admin/whatsapp/*`): `source: "whatsapp"` + `paymentMethod: "whatsapp"`
+  (= pago por coordinar; los `Payment` siguen siendo card/cash/transfer). La bandeja, la búsqueda por código y el pedido
+  rápido reutilizan `createBooking`, `updateAdminBooking`, `changeStatus` y `addManualPayment`: no dupliques reglas allí.
+  Payphone aprobado y pagado deja la confirmación en `confirmed` y la cuenta "Tarjeta (Payphone)".
 - **Token público:** `Booking.accessToken` tiene `select: false`; solo sale al crear el pedido, en la confirmación de Payphone y como `trackingUrl` en el detalle del panel.
 
 ## Convenciones

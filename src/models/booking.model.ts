@@ -9,7 +9,15 @@ export const BOOKING_STATUSES = [
   "cancelled",
   "no_show",
 ] as const;
-export const PAYMENT_METHODS = ["card", "cash", "transfer"] as const;
+/**
+ * "whatsapp" = pago por coordinar por WhatsApp: el cliente terminó el pedido en el chat y
+ * el asesor define después cómo paga. No es un método de `Payment` (esos son tarjeta,
+ * efectivo o transferencia): al cobrar se registra el pago con su método real.
+ */
+export const PAYMENT_METHODS = ["card", "cash", "transfer", "whatsapp"] as const;
+/** Origen del pedido. "whatsapp" = terminó en el chat (web con "Coordinar por WhatsApp" o pedido rápido del panel). */
+export const BOOKING_SOURCES = ["web", "admin", "import", "whatsapp"] as const;
+export type BookingSource = (typeof BOOKING_SOURCES)[number];
 export const PAYMENT_STATUSES = ["pending", "review", "partial", "paid", "refunded"] as const;
 /**
  * Confirmación del pago como la columna "Confirmacion" de la Base del Excel:
@@ -67,7 +75,7 @@ export interface IBooking extends Document {
   branch: Types.ObjectId;
   customer: Types.ObjectId;
   /** "import" = fila del Excel histórico (código HIS-…), cargada por `scripts/import-history.ts`. */
-  source: "web" | "admin" | "import";
+  source: BookingSource;
   items: IBookingItem[];
   subtotal: number;
   discount: number;
@@ -143,7 +151,7 @@ const bookingSchema = new Schema<IBooking>(
     accessToken: { type: String, required: true, select: false },
     branch: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     customer: { type: Schema.Types.ObjectId, ref: "Customer", required: true },
-    source: { type: String, enum: ["web", "admin", "import"], default: "web" },
+    source: { type: String, enum: BOOKING_SOURCES, default: "web" },
     items: { type: [itemSchema], default: [] },
     subtotal: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
@@ -194,5 +202,7 @@ bookingSchema.index({ "novedades.at": -1 });
 // Reportes por rango de fechas sin sucursal (FEE, estado de resultados consolidado) y la Base.
 bookingSchema.index({ date: 1, status: 1 });
 bookingSchema.index({ importBatch: 1 }, { sparse: true });
+// Bandeja "Pedidos por WhatsApp": pendientes del origen, más nuevos primero.
+bookingSchema.index({ source: 1, status: 1, createdAt: -1 });
 
 export const Booking = mongoose.model<IBooking>("Booking", bookingSchema);

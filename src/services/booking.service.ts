@@ -3,7 +3,9 @@ import { isValidObjectId, Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import {
   BOOKING_STATUSES,
+  BOOKING_SOURCES,
   Booking,
+  BookingSource,
   BookingStatus,
   IBooking,
   INACTIVE_STATUSES,
@@ -98,6 +100,18 @@ function parseInvoice(raw: any) {
 }
 
 /**
+ * Regex que encuentra un teléfono escrito de cualquier forma ("0991 234 567", "+593991234567"):
+ * compara los últimos 9 dígitos (el celular sin 0 ni 593) dejando pasar separadores.
+ * null si no hay dígitos suficientes.
+ */
+export function phoneRegex(phone: unknown): RegExp | null {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+  if (digits.length < 7) return null;
+  const tail = digits.slice(-9);
+  return new RegExp(`${tail.split("").join("\\D*")}\\D*$`);
+}
+
+/**
  * Busca al cliente por correo (o teléfono) y actualiza sus datos con lo último
  * que escribió: así no se duplica cada vez que vuelve a pedir.
  */
@@ -119,10 +133,13 @@ async function upsertCustomer(
     throw new CustomError("Escribe un teléfono válido", 400);
   if (!email && !phone) throw new CustomError("El cliente necesita correo o teléfono", 400);
 
+  // En el panel el teléfono se escribe de cualquier forma: se compara por sus dígitos.
+  const byPhone = !strict && phoneRegex(phone);
   const existing =
     account ??
     (email ? await Customer.findOne({ email }) : null) ??
-    (phone ? await Customer.findOne({ phone }) : null);
+    (phone ? await Customer.findOne({ phone }) : null) ??
+    (byPhone ? await Customer.findOne({ phone: byPhone }).sort({ totalOrders: -1 }) : null);
   if (existing) {
     existing.name = name;
     if (email) existing.email = email;
@@ -244,7 +261,8 @@ async function findByAccess(codeRaw: unknown, tokenRaw: unknown) {
 // ---------------------------------------------------------------------------
 
 interface CreateOptions {
-  source: "web" | "admin";
+  source: Exclude<BookingSource, "import">;
+  /** Personal del panel: sin validar turnos, con líneas libres y descuentos. */
   user?: SessionUser;
   /** Customer con sesión iniciada en la web ("Mi cuenta"). */
   customerId?: string;
@@ -252,7 +270,8 @@ interface CreateOptions {
 }
 
 export async function createBooking(body: any, opts: CreateOptions) {
-  const isAdmin = opts.source === "admin";
+  // Panel = hay sesión del personal (también un pedido rápido por WhatsApp).
+  const isAdmin = Boolean(opts.user);
   const byName = opts.user ? actor(opts.user)!.name : "Cliente (web)";
 
   const branchId = assertObjectId(body?.branch, "la sucursal");
@@ -269,7 +288,10 @@ export async function createBooking(body: any, opts: CreateOptions) {
 
   const paymentMethod = String(body?.paymentMethod ?? "") as PaymentMethod;
   if (!(PAYMENT_METHODS as readonly string[]).includes(paymentMethod)) {
-    throw new CustomError("Elige un método de pago: tarjeta, efectivo o transferencia", 400);
+    throw new CustomError(
+      "Elige un método de pago: tarjeta, efectivo, transferencia o coordinar por WhatsApp",
+      400,
+    );
   }
   const transferProofUrl = str(body?.transferProofUrl, 500);
   if (transferProofUrl && !URL_RE.test(transferProofUrl)) {
@@ -295,9 +317,12 @@ export async function createBooking(body: any, opts: CreateOptions) {
   }
   const operators = isAdmin ? await parseOperators(body?.operators) : [];
   const invoice = parseInvoice(body?.invoice);
+  // En el panel el cliente puede venir elegido por su id (búsqueda por teléfono del pedido rápido).
+  const pickedId =
+    isAdmin && isValidObjectId(String(body?.customer?._id ?? "")) ? String(body.customer._id) : undefined;
   const customer = await upsertCustomer(body?.customer, branch._id as Types.ObjectId, {
     strict: !isAdmin,
-    accountId: isAdmin ? undefined : opts.customerId,
+    accountId: isAdmin ? pickedId : opts.customerId,
   });
   const address = str(body?.address, 300) || customer.address;
   if (!address && !isAdmin) throw new CustomError("Escribe la dirección del servicio", 400);
@@ -306,9 +331,26 @@ export async function createBooking(body: any, opts: CreateOptions) {
     await customer.save();
   }
 
+  let paymentConfirmation: string | undefined;
+  if (isAdmin && body?.paymentConfirmation !== undefined) {
+    if (!(PAYMENT_CONFIRMATIONS as readonly string[]).includes(String(body.paymentConfirmation)))
+      throw new CustomError("Confirmación del pago inválida", 400);
+    paymentConfirmation = String(body.paymentConfirmation);
+  }
+  // Por coordinar = aún no se cobra: en la Base figura como "pendiente de pago".
+  if (!paymentConfirmation && paymentMethod === "whatsapp") paymentConfirmation = "pending_payment";
+
   const code = await nextCode("booking", "NEMO");
   const accessToken = newAccessToken();
   const total = priced.subtotal - discount;
+  const createdNote =
+    opts.source === "whatsapp"
+      ? isAdmin
+        ? "Pedido rápido por WhatsApp desde el panel"
+        : "Creado desde la web: el cliente termina por WhatsApp"
+      : isAdmin
+        ? "Creado desde el panel"
+        : "Creado desde la web";
   const booking = await Booking.create({
     code,
     accessToken,
@@ -330,6 +372,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
     zone: str(body?.zone, 80),
     ...(isAdmin && body?.tip !== undefined ? { tip: cents(body.tip, "La propina") } : {}),
     ...(isAdmin && body?.paymentAccount !== undefined ? { paymentAccount: str(body.paymentAccount, 80) } : {}),
+    ...(paymentConfirmation ? { paymentConfirmation } : {}),
     status,
     operators,
     paymentMethod,
@@ -339,9 +382,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
     transferProofUrl,
     invoice,
     officeQuote: opts.officeQuoteId ?? null,
-    history: [
-      historyEntry(byName, "created", isAdmin ? "Creado desde el panel" : "Creado desde la web"),
-    ],
+    history: [historyEntry(byName, "created", createdNote)],
   });
 
   // Dos clientes pudieron pedir el último cupo a la vez: se revisa ya guardado y
@@ -386,7 +427,8 @@ export async function createBooking(body: any, opts: CreateOptions) {
 
 export async function createPublicBooking(body: any, customerId?: string) {
   const { bookingId, accessToken, payment } = await createBooking(body, {
-    source: "web",
+    // "Coordinar y pagar por WhatsApp": mismo pedido, pero el asesor lo atiende en el chat.
+    source: body?.paymentMethod === "whatsapp" ? "whatsapp" : "web",
     customerId,
   });
   const view = await publicViewById(bookingId);
@@ -394,7 +436,8 @@ export async function createPublicBooking(body: any, customerId?: string) {
 }
 
 export async function createAdminBooking(body: any, user: SessionUser) {
-  const { bookingId } = await createBooking(body, { source: "admin", user });
+  const source = body?.source === "whatsapp" ? "whatsapp" : "admin";
+  const { bookingId } = await createBooking(body, { source, user });
   return getAdminBooking(String(bookingId), user);
 }
 
@@ -539,7 +582,8 @@ export async function listBookings(user: SessionUser, query: any) {
     filter.operators = new Types.ObjectId(String(query.operator));
   if (query?.customer && isValidObjectId(String(query.customer)))
     filter.customer = new Types.ObjectId(String(query.customer));
-  if (query?.source === "web" || query?.source === "admin") filter.source = query.source;
+  if ((BOOKING_SOURCES as readonly string[]).includes(String(query?.source ?? "")))
+    filter.source = query.source;
   if (query?.q) {
     const q = str(query.q, 80);
     const re = new RegExp(escapeRegex(q), "i");

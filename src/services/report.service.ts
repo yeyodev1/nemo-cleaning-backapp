@@ -254,6 +254,7 @@ export async function dashboard(user: SessionUser, query: any) {
     upcoming,
     toConfirm,
     productionNow,
+    whatsappPending,
   ] = await Promise.all([
     Booking.find({ ...scope, date: today, status: { $nin: INACTIVE_STATUSES } })
       .select("status")
@@ -295,6 +296,8 @@ export async function dashboard(user: SessionUser, query: any) {
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
     productionSnapshot(scope, today),
+    // Pedidos que terminaron en WhatsApp y nadie confirmó aún (tarjeta de aviso del Inicio).
+    Booking.countDocuments({ ...scope, source: "whatsapp", status: "pending" }),
   ]);
 
   const incomeByDayMap = new Map<string, number>();
@@ -330,6 +333,7 @@ export async function dashboard(user: SessionUser, query: any) {
     // Producción (lo facturado por servicios hechos) de hoy, la quincena y el mes en curso.
     production: productionNow,
     newOfficeQuotes,
+    whatsappPending,
     incomeByDay: daysBetween(from, to).map((date) => ({
       date,
       amount: incomeByDayMap.get(date) ?? 0,
