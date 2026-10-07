@@ -23,6 +23,8 @@ export interface IUser extends Document {
   /** Quién cobra el "FEE supervisor" de este operador. */
   supervisor: Types.ObjectId | null;
   lastLoginAt?: Date;
+  /** Lote de importación del Excel histórico (permite deshacerla). */
+  importBatch?: string;
   createdAt: Date;
 }
 
@@ -42,6 +44,7 @@ const userSchema = new Schema<IUser>(
     commissions: { type: Boolean, default: true },
     supervisor: { type: Schema.Types.ObjectId, ref: "User", default: null },
     lastLoginAt: { type: Date },
+    importBatch: { type: String },
   },
   { timestamps: true, versionKey: false },
 );

@@ -10,6 +10,8 @@ export interface ICustomer extends Document {
   branch: Types.ObjectId | null;
   totalOrders: number;
   totalSpent: number;
+  /** Lote de importación del Excel histórico (permite deshacerla). */
+  importBatch?: string;
   createdAt: Date;
 }
 
@@ -25,11 +27,13 @@ const customerSchema = new Schema<ICustomer>(
     branch: { type: Schema.Types.ObjectId, ref: "Branch", default: null },
     totalOrders: { type: Number, default: 0 },
     totalSpent: { type: Number, default: 0 },
+    importBatch: { type: String },
   },
   { timestamps: true, versionKey: false },
 );
 
 customerSchema.index({ email: 1 });
 customerSchema.index({ phone: 1 });
+customerSchema.index({ importBatch: 1 }, { sparse: true });
 
 export const Customer = mongoose.model<ICustomer>("Customer", customerSchema);

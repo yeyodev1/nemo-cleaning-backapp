@@ -33,6 +33,8 @@ export interface IPayment extends Document {
   verifiedAt?: Date | null;
   verifiedBy?: { id: string; name: string } | null;
   providerResponse?: unknown;
+  /** Lote de importación del Excel histórico (permite deshacerla). */
+  importBatch?: string;
   createdAt: Date;
 }
 
@@ -62,6 +64,7 @@ const paymentSchema = new Schema<IPayment>(
     verifiedBy: { type: actorSchema, default: null },
     // Respuesta cruda de Payphone para soporte: no sale en las respuestas.
     providerResponse: { type: Schema.Types.Mixed, select: false },
+    importBatch: { type: String },
   },
   { timestamps: true, versionKey: false },
 );
@@ -70,5 +73,6 @@ paymentSchema.index({ clientTransactionId: 1 }, { unique: true, sparse: true });
 paymentSchema.index({ booking: 1 });
 paymentSchema.index({ status: 1, paidAt: -1 });
 paymentSchema.index({ branch: 1, createdAt: -1 });
+paymentSchema.index({ importBatch: 1 }, { sparse: true });
 
 export const Payment = mongoose.model<IPayment>("Payment", paymentSchema);

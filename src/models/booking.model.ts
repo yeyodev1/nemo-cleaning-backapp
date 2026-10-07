@@ -66,7 +66,8 @@ export interface IBooking extends Document {
   accessToken: string;
   branch: Types.ObjectId;
   customer: Types.ObjectId;
-  source: "web" | "admin";
+  /** "import" = fila del Excel histórico (código HIS-…), cargada por `scripts/import-history.ts`. */
+  source: "web" | "admin" | "import";
   items: IBookingItem[];
   subtotal: number;
   discount: number;
@@ -96,6 +97,8 @@ export interface IBooking extends Document {
   paymentConfirmation: PaymentConfirmation;
   novedades: INovedad[];
   history: IHistory[];
+  /** Lote de importación (p. ej. "excel-2026-10"): permite deshacer la carga histórica. */
+  importBatch?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -140,7 +143,7 @@ const bookingSchema = new Schema<IBooking>(
     accessToken: { type: String, required: true, select: false },
     branch: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     customer: { type: Schema.Types.ObjectId, ref: "Customer", required: true },
-    source: { type: String, enum: ["web", "admin"], default: "web" },
+    source: { type: String, enum: ["web", "admin", "import"], default: "web" },
     items: { type: [itemSchema], default: [] },
     subtotal: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
@@ -178,6 +181,7 @@ const bookingSchema = new Schema<IBooking>(
     },
     novedades: { type: [novedadSchema], default: [] },
     history: { type: [historySchema], default: [] },
+    importBatch: { type: String },
   },
   { timestamps: true, versionKey: false },
 );
@@ -187,5 +191,8 @@ bookingSchema.index({ operators: 1, date: 1 });
 bookingSchema.index({ customer: 1, createdAt: -1 });
 bookingSchema.index({ startAt: 1 });
 bookingSchema.index({ "novedades.at": -1 });
+// Reportes por rango de fechas sin sucursal (FEE, estado de resultados consolidado) y la Base.
+bookingSchema.index({ date: 1, status: 1 });
+bookingSchema.index({ importBatch: 1 }, { sparse: true });
 
 export const Booking = mongoose.model<IBooking>("Booking", bookingSchema);
