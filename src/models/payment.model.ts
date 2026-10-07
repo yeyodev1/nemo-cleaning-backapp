@@ -21,6 +21,8 @@ export interface IPayment extends Document {
   reference: string;
   clientTransactionId?: string;
   transactionId: string;
+  /** Cuenta donde entró el dinero ("Transferencia Pichincha", "Efectivo"…), como la columna "Pagos" del Excel. */
+  account: string;
   note: string;
   registeredBy?: { id: string; name: string };
   reviewedBy?: { id: string; name: string };
@@ -47,6 +49,7 @@ const paymentSchema = new Schema<IPayment>(
     reference: { type: String, default: "" },
     clientTransactionId: { type: String },
     transactionId: { type: String, default: "" },
+    account: { type: String, default: "" },
     note: { type: String, default: "" },
     registeredBy: { type: actorSchema },
     reviewedBy: { type: actorSchema },

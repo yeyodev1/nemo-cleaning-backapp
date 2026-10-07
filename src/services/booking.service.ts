@@ -7,6 +7,7 @@ import {
   BookingStatus,
   IBooking,
   INACTIVE_STATUSES,
+  PAYMENT_CONFIRMATIONS,
   PAYMENT_METHODS,
   PAYMENT_STATUSES,
   PaymentMethod,
@@ -193,6 +194,7 @@ async function publicView(b: any) {
     durationMinutes: b.durationMinutes,
     address: b.address,
     reference: b.reference,
+    zone: b.zone ?? "",
     notes: b.notes,
     status: b.status,
     operators: (b.operators ?? []).map((o: any) => ({
@@ -323,6 +325,10 @@ export async function createBooking(body: any, opts: CreateOptions) {
     address,
     reference: str(body?.reference, 300),
     notes: str(body?.notes, 1000),
+    // Urbanización elegida en la web (lista de la sucursal o "Otra" escrita a mano).
+    zone: str(body?.zone, 80),
+    ...(isAdmin && body?.tip !== undefined ? { tip: cents(body.tip, "La propina") } : {}),
+    ...(isAdmin && body?.paymentAccount !== undefined ? { paymentAccount: str(body.paymentAccount, 80) } : {}),
     status,
     operators,
     paymentMethod,
@@ -637,6 +643,14 @@ export async function updateAdminBooking(id: string, body: any, user: SessionUse
     if (body?.[key] !== undefined) booking[key] = str(body[key], 300);
   }
   if (body?.notes !== undefined) booking.notes = str(body.notes, 1000);
+  if (body?.zone !== undefined) booking.zone = str(body.zone, 80);
+  if (body?.tip !== undefined) booking.tip = cents(body.tip, "La propina");
+  if (body?.paymentAccount !== undefined) booking.paymentAccount = str(body.paymentAccount, 80);
+  if (body?.paymentConfirmation !== undefined) {
+    if (!(PAYMENT_CONFIRMATIONS as readonly string[]).includes(String(body.paymentConfirmation)))
+      throw new CustomError("Confirmación del pago inválida", 400);
+    booking.paymentConfirmation = body.paymentConfirmation;
+  }
   if (body?.invoice !== undefined) booking.invoice = parseInvoice(body.invoice);
   if (body?.paymentMethod !== undefined) {
     if (!(PAYMENT_METHODS as readonly string[]).includes(String(body.paymentMethod))) {

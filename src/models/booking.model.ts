@@ -11,6 +11,19 @@ export const BOOKING_STATUSES = [
 ] as const;
 export const PAYMENT_METHODS = ["card", "cash", "transfer"] as const;
 export const PAYMENT_STATUSES = ["pending", "review", "partial", "paid", "refunded"] as const;
+/**
+ * Confirmación del pago como la columna "Confirmacion" de la Base del Excel:
+ * pendiente de confirmación (transferencia sin verificar), confirmado, pendiente de
+ * pago (por cobrar), perdida (no se cobrará) y canje (sin cobro: intercambio/cortesía).
+ */
+export const PAYMENT_CONFIRMATIONS = [
+  "pending_confirmation",
+  "confirmed",
+  "pending_payment",
+  "lost",
+  "exchange",
+] as const;
+export type PaymentConfirmation = (typeof PAYMENT_CONFIRMATIONS)[number];
 /** Estados que no ocupan agenda ni cuentan como producción. */
 export const INACTIVE_STATUSES = ["cancelled", "no_show"];
 
@@ -39,6 +52,15 @@ export interface IHistory {
   note: string;
 }
 
+/** Novedad (incidencia) de un servicio: hoja NOVEDADES del Excel. */
+export interface INovedad {
+  _id: Types.ObjectId;
+  text: string;
+  operator: Types.ObjectId | null;
+  by: { id: string; name: string };
+  at: Date;
+}
+
 export interface IBooking extends Document {
   code: string;
   accessToken: string;
@@ -65,6 +87,14 @@ export interface IBooking extends Document {
   transferProofUrl: string;
   invoice: { required: boolean; name: string; documentId: string; email: string; address: string };
   officeQuote: Types.ObjectId | null;
+  /** Urbanización / zona del servicio (lista por sucursal, o texto libre si es "Otra"). */
+  zone: string;
+  /** Propina del cliente (centavos): no suma a la producción. */
+  tip: number;
+  /** Forma de pago con cuenta: "Efectivo", "Transferencia Pichincha"… */
+  paymentAccount: string;
+  paymentConfirmation: PaymentConfirmation;
+  novedades: INovedad[];
   history: IHistory[];
   createdAt: Date;
   updatedAt: Date;
@@ -95,6 +125,13 @@ const historySchema = new Schema<IHistory>(
   },
   { _id: false },
 );
+
+const novedadSchema = new Schema<INovedad>({
+  text: { type: String, required: true },
+  operator: { type: Schema.Types.ObjectId, ref: "User", default: null },
+  by: { type: new Schema({ id: String, name: String }, { _id: false }) },
+  at: { type: Date, default: Date.now },
+});
 
 const bookingSchema = new Schema<IBooking>(
   {
@@ -131,6 +168,15 @@ const bookingSchema = new Schema<IBooking>(
       address: { type: String, default: "" },
     },
     officeQuote: { type: Schema.Types.ObjectId, ref: "OfficeQuote", default: null },
+    zone: { type: String, default: "" },
+    tip: { type: Number, default: 0, min: 0 },
+    paymentAccount: { type: String, default: "" },
+    paymentConfirmation: {
+      type: String,
+      enum: PAYMENT_CONFIRMATIONS,
+      default: "pending_confirmation",
+    },
+    novedades: { type: [novedadSchema], default: [] },
     history: { type: [historySchema], default: [] },
   },
   { timestamps: true, versionKey: false },
@@ -140,5 +186,6 @@ bookingSchema.index({ branch: 1, date: 1, time: 1 });
 bookingSchema.index({ operators: 1, date: 1 });
 bookingSchema.index({ customer: 1, createdAt: -1 });
 bookingSchema.index({ startAt: 1 });
+bookingSchema.index({ "novedades.at": -1 });
 
 export const Booking = mongoose.model<IBooking>("Booking", bookingSchema);

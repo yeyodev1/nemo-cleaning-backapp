@@ -6,6 +6,7 @@ import { User } from "../models/user.model";
 import { isValidDate, minutesOf, timeOf, toDateTime, weekDayOf } from "../utils/date";
 import { assertObjectId } from "../utils/http";
 import { getSettings } from "./settings.service";
+import { capacityFor } from "./shift.service";
 
 export interface Slot {
   time: string;
@@ -43,7 +44,8 @@ export async function computeSlots(
 
   const [settings, capacity, bookings] = await Promise.all([
     getSettings(),
-    branchCapacity(branch._id as Types.ObjectId),
+    // Turnos del calendario: ACTIVOS ese día (+ MEDIO DÍA en turnos de la mañana).
+    capacityFor(branch._id as Types.ObjectId, date),
     Booking.find({
       branch: branch._id,
       date,
@@ -66,7 +68,7 @@ export async function computeSlots(
     const end = start + step;
     const overlapping = ranges.filter((r) => r.start < end && r.end > start).length;
     const tooSoon = toDateTime(date, time).getTime() < minStart;
-    return { time, available: !tooSoon && overlapping < capacity };
+    return { time, available: !tooSoon && overlapping < capacity(time) };
   });
 }
 

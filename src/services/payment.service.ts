@@ -105,6 +105,7 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
     status: "approved",
     proofUrl: str(body?.proofUrl, 500),
     reference: str(body?.reference, 120),
+    account: str(body?.account, 80),
     note: str(body?.note, 500),
     clientTransactionId: manualTransactionId(booking.code),
     registeredBy: by,
@@ -126,7 +127,14 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
     },
   );
   await confirmIfPending(booking._id, by.name);
-  await recalculatePayments(booking._id);
+  const totals = await recalculatePayments(booking._id);
+  // Cobrado por completo: en la Base deja de figurar como pendiente.
+  if (totals.paymentStatus === "paid") {
+    await Booking.updateOne(
+      { _id: booking._id, paymentConfirmation: { $in: ["pending_confirmation", "pending_payment"] } },
+      { $set: { paymentConfirmation: "confirmed" } },
+    );
+  }
   await sendPaymentApproved(String(booking._id), amount);
   return payment.toObject();
 }
@@ -195,7 +203,14 @@ export async function reviewPayment(paymentId: string, body: any, user: SessionU
       },
     },
   );
-  if (body.approved) await confirmIfPending(payment.booking, by.name);
+  if (body.approved) {
+    await confirmIfPending(payment.booking, by.name);
+    // Columna "Confirmacion" de la Base: la transferencia ya se vio.
+    await Booking.updateOne(
+      { _id: payment.booking, paymentConfirmation: "pending_confirmation" },
+      { $set: { paymentConfirmation: "confirmed" } },
+    );
+  }
   await recalculatePayments(payment.booking);
 
   if (body.approved) await sendPaymentApproved(String(payment.booking), claimed.amount);

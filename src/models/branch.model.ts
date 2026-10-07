@@ -12,6 +12,8 @@ export interface IBranch extends Document {
   closingTime: string;
   slotMinutes: number;
   workDays: number[];
+  /** Urbanizaciones / zonas que atiende (REP ZONA del Excel); editable desde el panel. */
+  zones: string[];
 }
 
 const branchSchema = new Schema<IBranch>(
@@ -28,6 +30,7 @@ const branchSchema = new Schema<IBranch>(
     slotMinutes: { type: Number, default: 60, min: 15, max: 480 },
     // 0 = domingo. Por defecto lunes a sábado.
     workDays: { type: [Number], default: [1, 2, 3, 4, 5, 6] },
+    zones: { type: [String], default: undefined },
   },
   { timestamps: true, versionKey: false },
 );

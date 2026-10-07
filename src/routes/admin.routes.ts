@@ -4,6 +4,7 @@ import * as catalogController from "../controllers/adminCatalog.controller";
 import * as financeController from "../controllers/adminFinance.controller";
 import * as officeQuoteController from "../controllers/adminOfficeQuote.controller";
 import * as peopleController from "../controllers/adminPeople.controller";
+import operationRoutes from "./adminOperation.routes";
 import { requireRoles } from "../middlewares/auth.middleware";
 import { uploadMiddleware } from "../middlewares/upload.middleware";
 
@@ -69,5 +70,8 @@ router.patch("/office-quotes/:id", staff, officeQuoteController.update);
 router.post("/office-quotes/:id/convert", staff, officeQuoteController.convert);
 
 router.post("/uploads", any, uploadMiddleware.single("file"), catalogController.upload);
+
+// Operación (fase 2): producción, novedades, turnos, metas y comisiones.
+router.use(operationRoutes);
 
 export default router;

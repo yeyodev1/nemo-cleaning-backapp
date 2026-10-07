@@ -1,7 +1,7 @@
 import { isValidObjectId, Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import { Branch } from "../models/branch.model";
-import { ROLES, User } from "../models/user.model";
+import { POSITIONS, ROLES, User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
 import { EMAIL_RE, assertObjectId, escapeRegex, normalizeEmail, str } from "../utils/http";
 
@@ -17,8 +17,49 @@ export function serializeUser(u: any) {
     branches: (u.branches ?? []).map((b: any) => String(b?._id ?? b)),
     active: u.active,
     color: u.color,
+    position: u.position ?? "",
+    monthlySalary: u.monthlySalary ?? 0,
+    commissions: u.commissions !== false,
+    supervisor: u.supervisor ? String(u.supervisor?._id ?? u.supervisor) : null,
+    hasPanelAccess: Boolean(u.email) && u.active !== false,
     createdAt: u.createdAt,
   };
+}
+
+/** Correo opcional: vacío = "sin acceso al panel". Si viene, debe ser válido y no repetido. */
+async function parseEmail(raw: unknown, selfId?: string): Promise<string> {
+  const email = normalizeEmail(raw);
+  if (!email) return "";
+  if (!EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
+  const taken = await User.exists({ email, ...(selfId ? { _id: { $ne: selfId } } : {}) });
+  if (taken) throw new CustomError("Ya existe una persona con ese correo", 409);
+  return email;
+}
+
+/** Campos de la fase 2 (cargo, sueldo, comisión, supervisor) comunes a crear y editar. */
+async function applyStaffFields(target: any, body: any, selfId?: string) {
+  if (body?.position !== undefined) {
+    const position = String(body.position ?? "");
+    if (position && !(POSITIONS as readonly string[]).includes(position))
+      throw new CustomError("Cargo inválido", 400);
+    target.position = position;
+  }
+  if (body?.monthlySalary !== undefined) {
+    const n = Number(body.monthlySalary);
+    if (!Number.isInteger(n) || n < 0)
+      throw new CustomError("El sueldo debe ser un entero en centavos", 400);
+    target.monthlySalary = n;
+  }
+  if (body?.commissions !== undefined) target.commissions = Boolean(body.commissions);
+  if (body?.supervisor !== undefined) {
+    const id = body.supervisor ? String(body.supervisor) : "";
+    if (!id) target.supervisor = null;
+    else {
+      if (!isValidObjectId(id) || id === selfId) throw new CustomError("Supervisor inválido", 400);
+      if (!(await User.exists({ _id: id }))) throw new CustomError("El supervisor no existe", 400);
+      target.supervisor = new Types.ObjectId(id);
+    }
+  }
 }
 
 async function parseBranches(raw: unknown): Promise<Types.ObjectId[]> {
@@ -64,11 +105,15 @@ export async function getUser(id: string) {
 
 export async function createUser(body: any) {
   const name = str(body?.name, 120);
-  const email = normalizeEmail(body?.email);
   if (!name) throw new CustomError("El nombre es obligatorio", 400);
-  if (!EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
+  const email = await parseEmail(body?.email);
   const role = String(body?.role ?? "operator");
   if (!(ROLES as readonly string[]).includes(role)) throw new CustomError("Rol inválido", 400);
+  // Gerencia y administradores de sucursal entran al panel: sin correo no podrían.
+  if (!email && role !== "operator")
+    throw new CustomError("Gerencia y administradores necesitan correo para entrar", 400);
+  const extra: any = {};
+  await applyStaffFields(extra, body);
   const color = body?.color && HEX.test(String(body.color)) ? String(body.color) : undefined;
   const branches = body?.branches !== undefined ? await parseBranches(body.branches) : [];
   const user = await User.create({
@@ -79,6 +124,7 @@ export async function createUser(body: any) {
     branches,
     active: body?.active !== false,
     ...(color ? { color } : {}),
+    ...extra,
   });
   return serializeUser(user);
 }
@@ -90,11 +136,8 @@ export async function updateUser(id: string, body: any, current: SessionUser) {
   const isSelf = String(user._id) === current.id;
 
   if (body?.name !== undefined) user.name = str(body.name, 120) || user.name;
-  if (body?.email !== undefined) {
-    const email = normalizeEmail(body.email);
-    if (!EMAIL_RE.test(email)) throw new CustomError("Correo inválido", 400);
-    user.email = email;
-  }
+  if (body?.email !== undefined) user.email = await parseEmail(body.email, String(user._id));
+  await applyStaffFields(user, body, String(user._id));
   if (body?.phone !== undefined) user.phone = str(body.phone, 30);
   if (body?.color !== undefined) {
     if (!HEX.test(String(body.color)))
@@ -114,6 +157,8 @@ export async function updateUser(id: string, body: any, current: SessionUser) {
       throw new CustomError("No puedes desactivar tu propia cuenta", 400);
     user.active = Boolean(body.active);
   }
+  if (!user.email && user.role !== "operator")
+    throw new CustomError("Gerencia y administradores necesitan correo para entrar", 400);
   await user.save();
   return serializeUser(user);
 }

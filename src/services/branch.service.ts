@@ -37,6 +37,11 @@ function applyFields(target: any, body: any) {
       throw new CustomError("slotMinutes debe estar entre 15 y 480", 400);
     target.slotMinutes = n;
   }
+  if (body?.zones !== undefined) {
+    if (!Array.isArray(body.zones)) throw new CustomError("zones debe ser una lista", 400);
+    const zones = body.zones.map((z: unknown) => str(z, 80)).filter(Boolean);
+    target.zones = [...new Set(zones)].slice(0, 40);
+  }
   if (body?.workDays !== undefined) {
     if (!Array.isArray(body.workDays))
       throw new CustomError("workDays debe ser una lista de 0 a 6", 400);
