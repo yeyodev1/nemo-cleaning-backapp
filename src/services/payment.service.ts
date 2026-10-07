@@ -10,6 +10,9 @@ import { assertObjectId, paginated, parsePage, str } from "../utils/http";
 import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
 import { sendPaymentApproved, sendTransferRejected } from "./bookingEmail.service";
 
+// Para la nota del historial, que el panel muestra tal cual.
+const METHOD_LABEL: Record<string, string> = { card: "tarjeta", cash: "efectivo", transfer: "transferencia" };
+
 const METHODS = ["card", "cash", "transfer"];
 
 /**
@@ -117,7 +120,7 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
           at: new Date(),
           by: by.name,
           action: "payment",
-          note: `Pago registrado (${method})`,
+          note: `Pago registrado (${METHOD_LABEL[method] ?? method})`,
         },
       },
     },

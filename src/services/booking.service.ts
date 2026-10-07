@@ -64,6 +64,17 @@ function safeEqual(a: string, b: string): boolean {
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
+// Etiquetas en español para las notas del historial (el panel las muestra tal cual).
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pendiente",
+  confirmed: "Confirmado",
+  on_the_way: "En camino",
+  in_progress: "En curso",
+  completed: "Terminado",
+  cancelled: "Cancelado",
+  no_show: "No se presentó",
+};
+
 function historyEntry(by: string, action: string, note = "") {
   return { at: new Date(), by, action, note: note.slice(0, 500) };
 }
@@ -656,7 +667,7 @@ export async function changeStatus(id: string, body: any, user: SessionUser) {
   const previous = booking.status;
   booking.status = status;
   booking.history.push(
-    historyEntry(actor(user)!.name, status, note || `Estado: ${previous} → ${status}`),
+    historyEntry(actor(user)!.name, status, note || `Estado: ${STATUS_LABEL[previous] ?? previous} → ${STATUS_LABEL[status] ?? status}`),
   );
   await booking.save();
   if (status === "cancelled") {
