@@ -8,18 +8,37 @@ export interface IBankAccount {
   documentId: string;
 }
 
+export interface ITier {
+  minQty: number;
+  unitPrice: number;
+}
+
+export const DEFAULT_WINDOW_TIERS: ITier[] = [
+  { minQty: 2, unitPrice: 800 },
+  { minQty: 6, unitPrice: 650 },
+  { minQty: 11, unitPrice: 500 },
+];
+export const DEFAULT_BATHROOM_TIERS: ITier[] = [
+  { minQty: 1, unitPrice: 2500 },
+  { minQty: 2, unitPrice: 2000 },
+  { minQty: 4, unitPrice: 1800 },
+];
+
+const tierType = { type: [{ minQty: Number, unitPrice: Number, _id: false }] };
+
 export interface ISettings extends Document {
   key: string;
   businessName: string;
   notifyEmails: string[];
   bankAccounts: IBankAccount[];
+  /** Tarifas reales del catálogo Home & Office (centavos). El plan mensual es tarifa especial: sin precio. */
   officePricing: {
-    pricePerM2: number;
-    pricePerChair: number;
-    pricePerDesk: number;
-    pricePerBathroom: number;
-    minimum: number;
-    frequencyDiscounts: { semanal: number; quincenal: number; mensual: number };
+    basicPerM2: number;
+    deepPerM2: number;
+    chairFabric: number;
+    chairMixed: number;
+    windowTiers: ITier[];
+    bathroomTiers: ITier[];
   };
   bookingLeadHours: number;
 }
@@ -44,16 +63,12 @@ const settingsSchema = new Schema<ISettings>(
       default: [],
     },
     officePricing: {
-      pricePerM2: { type: Number, default: 120 },
-      pricePerChair: { type: Number, default: 300 },
-      pricePerDesk: { type: Number, default: 200 },
-      pricePerBathroom: { type: Number, default: 800 },
-      minimum: { type: Number, default: 4000 },
-      frequencyDiscounts: {
-        semanal: { type: Number, default: 10 },
-        quincenal: { type: Number, default: 7 },
-        mensual: { type: Number, default: 5 },
-      },
+      basicPerM2: { type: Number, default: 250 },
+      deepPerM2: { type: Number, default: 300 },
+      chairFabric: { type: Number, default: 650 },
+      chairMixed: { type: Number, default: 700 },
+      windowTiers: { ...tierType, default: () => DEFAULT_WINDOW_TIERS },
+      bathroomTiers: { ...tierType, default: () => DEFAULT_BATHROOM_TIERS },
     },
     bookingLeadHours: { type: Number, default: 12, min: 0 },
   },

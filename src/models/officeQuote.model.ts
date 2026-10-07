@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-export const QUOTE_FREQUENCIES = ["unica", "semanal", "quincenal", "mensual"] as const;
+/** Planes del catálogo: básico y profundo por m²; mensual = tarifa especial (sin precio automático). */
+export const QUOTE_PLANS = ["basico", "profundo", "mensual"] as const;
 export const QUOTE_STATUSES = ["new", "contacted", "won", "lost"] as const;
 
 export interface IOfficeQuote extends Document {
@@ -8,12 +9,14 @@ export interface IOfficeQuote extends Document {
   branch: Types.ObjectId | null;
   contact: { name: string; email: string; phone: string; company: string };
   squareMeters: number;
-  chairs: number;
-  desks: number;
+  plan: (typeof QUOTE_PLANS)[number];
+  chairsFabric: number;
+  chairsMixed: number;
+  windows: number;
   bathrooms: number;
-  frequency: (typeof QUOTE_FREQUENCIES)[number];
   notes: string;
-  estimate: number;
+  /** null = plan mensual (tarifa especial): el equipo cotiza y contacta. */
+  estimate: number | null;
   breakdown: { label: string; amount: number }[];
   status: (typeof QUOTE_STATUSES)[number];
   booking: Types.ObjectId | null;
@@ -31,12 +34,13 @@ const officeQuoteSchema = new Schema<IOfficeQuote>(
       company: { type: String, default: "" },
     },
     squareMeters: { type: Number, default: 0 },
-    chairs: { type: Number, default: 0 },
-    desks: { type: Number, default: 0 },
+    plan: { type: String, enum: QUOTE_PLANS, default: "basico" },
+    chairsFabric: { type: Number, default: 0 },
+    chairsMixed: { type: Number, default: 0 },
+    windows: { type: Number, default: 0 },
     bathrooms: { type: Number, default: 0 },
-    frequency: { type: String, enum: QUOTE_FREQUENCIES, default: "unica" },
     notes: { type: String, default: "" },
-    estimate: { type: Number, default: 0 },
+    estimate: { type: Number, default: null },
     breakdown: { type: [{ label: String, amount: Number, _id: false }], default: [] },
     status: { type: String, enum: QUOTE_STATUSES, default: "new" },
     booking: { type: Schema.Types.ObjectId, ref: "Booking", default: null },

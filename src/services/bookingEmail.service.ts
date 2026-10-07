@@ -68,12 +68,17 @@ function summary(ctx: Ctx, { prices = true } = {}): string {
   const rows = b.items
     .map(
       (i) =>
-        `<tr><td style="padding:6px 0">${escapeHtml(i.name)} × ${i.quantity}</td>${prices ? `<td align="right" style="padding:6px 0">${formatMoney(i.subtotal)}</td>` : ""}</tr>`,
+        `<tr><td style="padding:6px 0">${escapeHtml(i.name)}${i.variant ? ` · ${escapeHtml(i.variant)}` : ""} × ${i.quantity}${i.unit === "m2" ? " m²" : ""}</td>${prices ? `<td align="right" style="padding:6px 0;color:${BRAND.navy};font-weight:bold">${formatMoney(i.subtotal)}</td>` : ""}</tr>`,
     )
     .join("");
+  // Muebles con rango ($15 – $20): se cobra el menor y el catálogo pide avisarlo.
+  const rangeNote =
+    prices && b.items.some((i) => (i.unitPriceMax ?? 0) > i.unitPrice)
+      ? `<tr><td colspan="2" style="padding:4px 0 8px;font-size:12px;color:${BRAND.muted}">El valor final se confirma según el estado/material del mueble.</td></tr>`
+      : "";
   const totals = prices
     ? `${b.discount ? `<tr><td style="padding:6px 0;color:${BRAND.muted}">Descuento</td><td align="right">-${formatMoney(b.discount)}</td></tr>` : ""}
-       <tr><td style="padding:8px 0;font-weight:bold;border-top:1px solid #E2E8F0">Total</td><td align="right" style="padding:8px 0;font-weight:bold;border-top:1px solid #E2E8F0">${formatMoney(b.total)}</td></tr>`
+       <tr><td style="padding:8px 0;font-weight:bold;border-top:1px solid #E1E7EE">Total</td><td align="right" style="padding:8px 0;font-weight:bold;border-top:1px solid #E1E7EE">${formatMoney(b.total)}</td></tr>`
     : "";
   return `
   <p style="margin:0 0 8px"><strong>Pedido:</strong> ${escapeHtml(b.code)}<br>
@@ -81,7 +86,7 @@ function summary(ctx: Ctx, { prices = true } = {}): string {
   <strong>Sucursal:</strong> ${escapeHtml(ctx.branch?.name ?? "")}<br>
   ${b.address ? `<strong>Dirección:</strong> ${escapeHtml(b.address)}${b.reference ? ` (${escapeHtml(b.reference)})` : ""}<br>` : ""}
   <strong>Pago:</strong> ${METHOD_LABEL[b.paymentMethod] ?? b.paymentMethod}</p>
-  <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin:12px 0">${rows}${totals}</table>`;
+  <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin:12px 0">${rows}${rangeNote}${totals}</table>`;
 }
 
 async function bankBlock(): Promise<string> {
@@ -93,7 +98,7 @@ async function bankBlock(): Promise<string> {
         `<p style="margin:0 0 8px">${escapeHtml(a.bank)} · ${escapeHtml(a.type)} N.º <strong>${escapeHtml(a.number)}</strong><br>${escapeHtml(a.holder)}${a.documentId ? ` · ${escapeHtml(a.documentId)}` : ""}</p>`,
     )
     .join("");
-  return `<div style="background:#F1F9FD;border-radius:12px;padding:16px;margin:16px 0"><p style="margin:0 0 8px;font-weight:bold;color:${BRAND.blue}">Datos para transferencia</p>${accounts}</div>`;
+  return `<div style="background:#F3F6F9;border-radius:12px;padding:16px;margin:16px 0"><p style="margin:0 0 8px;font-weight:bold;color:${BRAND.navy}">Datos para transferencia</p>${accounts}</div>`;
 }
 
 async function safe(label: string, fn: () => Promise<unknown>) {
@@ -277,25 +282,39 @@ export function sendCancelled(bookingId: string, reason: string) {
 
 export function sendOfficeQuote(quote: any) {
   return safe("cotización de oficina", async () => {
+    const PLAN: Record<string, string> = {
+      basico: "Básico",
+      profundo: "Profundo",
+      mensual: "Plan mensual",
+    };
+    const special = quote.estimate === null || quote.estimate === undefined;
     const rows = (quote.breakdown ?? [])
       .map(
         (r: any) =>
           `<tr><td style="padding:6px 0">${escapeHtml(r.label)}</td><td align="right">${formatMoney(r.amount)}</td></tr>`,
       )
       .join("");
-    const table = `<table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin:12px 0">${rows}
-      <tr><td style="padding:8px 0;font-weight:bold;border-top:1px solid #E2E8F0">Estimado</td><td align="right" style="font-weight:bold;border-top:1px solid #E2E8F0">${formatMoney(quote.estimate)}</td></tr></table>`;
+    const table = special
+      ? `<p style="background:${BRAND.soft};border-radius:12px;padding:16px">Elegiste el <strong>plan mensual</strong>: tiene tarifa especial, así que nuestro equipo te contactará para cotizarlo.</p>`
+      : `<table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin:12px 0">${rows}
+      <tr><td style="padding:8px 0;font-weight:bold;border-top:1px solid #E1E7EE">Estimado</td><td align="right" style="font-weight:bold;color:${BRAND.navy};border-top:1px solid #E1E7EE">${formatMoney(quote.estimate)}</td></tr></table>`;
+    const extras = [
+      quote.chairsFabric ? `${quote.chairsFabric} sillas de tela` : "",
+      quote.chairsMixed ? `${quote.chairsMixed} sillas mixtas` : "",
+      quote.windows ? `${quote.windows} ventanales` : "",
+      quote.bathrooms ? `${quote.bathrooms} baños` : "",
+    ].filter(Boolean);
     const html = layout(
       `Tu cotización ${quote.code}`,
-      `<p>Hola ${escapeHtml(String(quote.contact?.name ?? "").split(" ")[0])}, este es el estimado para la limpieza de tu oficina:</p>${table}
-       <p style="color:${BRAND.muted};font-size:13px">Es un valor referencial. Un asesor te contactará para confirmar los detalles.</p>`,
+      `<p>Hola ${escapeHtml(String(quote.contact?.name ?? "").split(" ")[0])}, ${special ? "recibimos tu solicitud para la limpieza de tu oficina." : "este es el estimado para la limpieza de tu oficina:"}</p>${table}
+       ${special ? "" : `<p style="color:${BRAND.muted};font-size:13px">Calculado con las tarifas de nuestro catálogo. Te contactaremos para confirmar los detalles.</p>`}`,
     );
     await sendEmail(quote.contact?.email ?? "", `Cotización ${quote.code} — Nemo Cleaning`, html);
     const admin = layout(
       `Nueva cotización de oficina ${quote.code}`,
       `<p><strong>${escapeHtml(quote.contact?.name)}</strong>${quote.contact?.company ? ` · ${escapeHtml(quote.contact.company)}` : ""}<br>
        ${escapeHtml(quote.contact?.phone)} · ${escapeHtml(quote.contact?.email)}</p>
-       <p>${quote.squareMeters} m² · ${quote.chairs} sillas · ${quote.desks} escritorios · ${quote.bathrooms} baños · frecuencia ${escapeHtml(quote.frequency)}</p>
+       <p>${quote.squareMeters} m² · ${escapeHtml(PLAN[quote.plan] ?? quote.plan)}${extras.length ? ` · ${escapeHtml(extras.join(" · "))}` : ""}</p>
        ${quote.notes ? `<p><strong>Observaciones:</strong> ${escapeHtml(quote.notes)}</p>` : ""}${table}`,
     );
     await sendEmail(await notifyRecipients(), `Nueva cotización de oficina ${quote.code}`, admin);

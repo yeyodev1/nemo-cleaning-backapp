@@ -20,7 +20,13 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export interface IBookingItem {
   service: Types.ObjectId | null;
   name: string;
+  /** Opción elegida (tamaño, medida, plan…); "" si el servicio no tiene variantes. */
+  variant: string;
   unitPrice: number;
+  /** Tope del rango de precio (solo informativo); 0 = precio fijo. */
+  unitPriceMax: number;
+  /** "unidad" | "m2" | "servicio": para pintar la cantidad (m² con decimales). */
+  unit: string;
   quantity: number;
   subtotal: number;
   isExtra: boolean;
@@ -69,7 +75,10 @@ const itemSchema = new Schema<IBookingItem>(
     // null = línea libre (p. ej. una cotización de oficina convertida en pedido).
     service: { type: Schema.Types.ObjectId, ref: "Service", default: null },
     name: { type: String, required: true },
+    variant: { type: String, default: "" },
     unitPrice: { type: Number, required: true, min: 0 },
+    unitPriceMax: { type: Number, default: 0, min: 0 },
+    unit: { type: String, default: "unidad" },
     quantity: { type: Number, required: true, min: 0 },
     subtotal: { type: Number, required: true, min: 0 },
     isExtra: { type: Boolean, default: false },

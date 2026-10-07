@@ -13,7 +13,9 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 - **Dev server:** `pnpm dev` (ts-node-dev, puerto 8100)
 - **Build:** `pnpm build` (tsc → `dist/`) — es la única verificación; no hay linter ni tests.
 - **Start prod:** `pnpm start`
-- **Seed:** `pnpm seed` (sucursales, catálogo si está vacío, settings y admin; idempotente)
+- **Seed:** `pnpm seed` (sucursales, catálogo real si está vacío, settings y admin; idempotente)
+- **Migrar catálogo:** `pnpm seed:catalog-real` (upsert por slug del catálogo real de `src/data/realCatalog.ts`, retira el
+  de ejemplo y escribe `officePricing`; idempotente, no toca usuarios)
 - **Format:** `pnpm format`
 
 ## Tech Stack
@@ -34,13 +36,17 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 
 ### Reglas clave
 
-- **Dinero en centavos enteros.** Los precios se recalculan siempre en el servidor (`pricing.service.ts`).
+- **Dinero en centavos enteros.** Los precios se recalculan siempre en el servidor (`pricing.service.ts#priceLine`:
+  variantes, rangos `priceMax` (se cobra el menor), tramos por cantidad (`utils/tiers.ts`) y m² con decimales). El front
+  replica la misma regla en `utils/pricing.ts`: si cambias una, cambia la otra.
+- **Catálogo real:** sale de `../recursos/MARCA.md` → `src/data/realCatalog.ts`. No inventar servicios ni precios.
+  Cotizador de oficinas = m² × plan (Básico/Profundo) + sillas + ventanales/sanitarios por tramos; plan mensual sin precio.
 - **Fechas:** `date` = `"YYYY-MM-DD"`, `time` = `"HH:mm"` en hora de Guayaquil (UTC-5 fijo, ver `utils/date.ts`); `startAt` guarda el instante.
 - **Disponibilidad** (`availability.service.ts`): turnos de `openingTime` a `closingTime` cada `slotMinutes` en `workDays`. Un turno se cierra si ya pasó / cae dentro de `bookingLeadHours`, o si los pedidos activos que se cruzan con él (según su `durationMinutes`) ≥ lavadores activos de la sucursal (mínimo 1). El panel puede agendar sin esa validación.
 - **Pagos:** `payment.service.ts#recalculatePayments` es el único que calcula `amountPaid`, `balance` y `paymentStatus` desde los `Payment`. Ingreso = pagos `approved` por `paidAt`. Un pago aprobado confirma un pedido `pending`.
 - **Payphone:** `payphone.service.ts`. Cada intento es un `Payment` `pending` con `clientTransactionId` ≤ 50; la confirmación es idempotente y con reclamo atómico.
 - **Roles:** `admin` todo; `manager` limitado a sus `branches` (`utils/scope.ts`: pedir una sucursal ajena es 403) y solo caja menor; `operator` solo `/operator/*` sobre servicios asignados.
-- **Correos:** `bookingEmail.service.ts`. Nunca lanzan; un correo caído no rompe la petición. Excepción: el código de
+- **Correos:** `bookingEmail.service.ts` con la plantilla de marca de `email.service.ts#layout` (logo PNG servido por el front). Nunca lanzan; un correo caído no rompe la petición. Excepción: el código de
   acceso (`loginCode.service.ts`) responde 502 si no sale, porque sin él no se puede entrar.
 - **Acceso:** `/auth/request-code` + `/auth/verify` (personal, solo cuentas activas) y `/customer-auth/*` (clientes; el primer
   verify crea el Customer). `LoginCode` guarda solo el HMAC del código (pepper `JWT_SECRET`), TTL 10 min, 5 intentos,

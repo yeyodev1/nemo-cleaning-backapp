@@ -9,7 +9,23 @@ function getClient(): Resend | null {
   return resend;
 }
 
-export const BRAND = { blue: "#0B4F8A", aqua: "#19C3B8", ink: "#0F172A", muted: "#64748B" };
+/** Colores reales de la marca (identidad de Instagram: marino dominante, naranja de acento, celeste). */
+export const BRAND = {
+  navy: "#12263F",
+  orange: "#E8743B",
+  orangeInk: "#B5521F",
+  skyBlue: "#6FB1DE",
+  ink: "#12263F",
+  muted: "#5C6B7C",
+  soft: "#F3F6F9",
+  line: "#E1E7EE",
+};
+
+/**
+ * Logo en PNG (los clientes de correo no pintan bien SVG). Lo sirve el front desde
+ * `public/brand/`; es la variante oficial "sobre oscuro", va sobre el encabezado marino.
+ */
+const LOGO_URL = "https://nemocleaning.ec/brand/nemo-logo-sobre-oscuro-600.png";
 
 /**
  * Envía un correo. Nunca lanza: el fallo de un correo no debe romper el pedido
@@ -56,22 +72,29 @@ export function escapeHtml(value: unknown): string {
 }
 
 export function button(label: string, href: string): string {
-  return `<p style="margin:24px 0"><a href="${href}" style="background:${BRAND.aqua};color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:bold;display:inline-block">${escapeHtml(label)}</a></p>`;
+  return `<p style="margin:24px 0"><a href="${href}" style="background:${BRAND.orange};color:${BRAND.navy};text-decoration:none;padding:14px 26px;border-radius:10px;font-weight:bold;font-size:15px;display:inline-block">${escapeHtml(label)} &rarr;</a></p>`;
 }
 
-/** Plantilla base: tarjeta blanca centrada con encabezado azul Nemo. */
+/** Plantilla base: encabezado marino con el logo oficial y subrayado naranja, tarjeta blanca y pie marino con contacto real. */
 export function layout(title: string, body: string): string {
-  return `<!doctype html><html><body style="margin:0">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#EEF6FB;padding:32px 0;font-family:Arial,Helvetica,sans-serif">
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#F3F6F9">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F6F9;padding:32px 12px;font-family:Poppins,Arial,Helvetica,sans-serif">
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:16px;overflow:hidden">
-        <tr><td style="background:${BRAND.blue};color:#fff;padding:20px 32px;font-size:20px;font-weight:bold">Nemo Cleaning <span style="color:${BRAND.aqua}">Services</span></td></tr>
-        <tr><td style="height:4px;background:${BRAND.aqua}"></td></tr>
+        <tr><td style="background:${BRAND.navy};padding:24px 32px 20px">
+          <img src="${LOGO_URL}" width="120" alt="nemo Cleaning Services" style="display:block;width:120px;height:auto;border:0">
+          <div style="width:40px;height:3px;background:${BRAND.orange};border-radius:2px;margin-top:12px;line-height:3px;font-size:0">&nbsp;</div>
+        </td></tr>
         <tr><td style="padding:32px;color:${BRAND.ink};font-size:15px;line-height:1.6">
-          <h1 style="margin:0 0 16px;font-size:22px;color:${BRAND.blue}">${escapeHtml(title)}</h1>
+          <h1 style="margin:0 0 16px;font-family:Fraunces,Georgia,'Times New Roman',serif;font-size:26px;line-height:1.2;color:${BRAND.navy}">${escapeHtml(title)}</h1>
           ${body}
         </td></tr>
-        <tr><td style="padding:16px 32px;color:${BRAND.muted};font-size:12px;border-top:1px solid #E2E8F0">© ${new Date().getFullYear()} Nemo Cleaning Services · Guayaquil, Ecuador</td></tr>
+        <tr><td style="background:${BRAND.navy};padding:20px 32px;color:#C9D1D9;font-size:12px;line-height:1.7">
+          <strong style="color:#fff;font-family:Fraunces,Georgia,serif;font-size:15px">Más que limpieza, restauramos valor</strong><br>
+          WhatsApp <a href="https://wa.me/593967771287" style="color:#fff;text-decoration:none">0967771287</a> ·
+          Instagram <a href="https://www.instagram.com/nemo_ec" style="color:#fff;text-decoration:none">@nemo_ec</a><br>
+          Nemo Cleaning Services · Guayaquil, Ecuador
+        </td></tr>
       </table>
     </td></tr>
   </table></body></html>`;

@@ -2,19 +2,28 @@ import { isValidObjectId, Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import { Branch } from "../models/branch.model";
 import { nextCode } from "../models/counter.model";
-import { OfficeQuote, QUOTE_FREQUENCIES, QUOTE_STATUSES } from "../models/officeQuote.model";
+import { OfficeQuote, QUOTE_PLANS, QUOTE_STATUSES } from "../models/officeQuote.model";
 import { ISettings } from "../models/setting.model";
 import { SessionUser } from "../types/AuthRequest";
-import { EMAIL_RE, assertObjectId, escapeRegex, paginated, parsePage, str } from "../utils/http";
+import {
+  EMAIL_RE,
+  assertObjectId,
+  escapeRegex,
+  formatMoney,
+  paginated,
+  parsePage,
+  str,
+} from "../utils/http";
+import { tierMinQty, tierUnitPrice } from "../utils/tiers";
 import { assertBranchAccess } from "../utils/scope";
 import { sendOfficeQuote } from "./bookingEmail.service";
 import { createBooking, getAdminBooking } from "./booking.service";
 import { getSettings } from "./settings.service";
 
-const FREQ_LABEL: Record<string, string> = {
-  semanal: "semanal",
-  quincenal: "quincenal",
-  mensual: "mensual",
+const PLAN_LABEL: Record<string, string> = {
+  basico: "Básico",
+  profundo: "Profundo",
+  mensual: "Plan mensual",
 };
 
 function count(value: unknown, label: string, max: number, decimals = false): number {
@@ -25,53 +34,67 @@ function count(value: unknown, label: string, max: number, decimals = false): nu
   return decimals ? Math.round(n * 100) / 100 : n;
 }
 
-/** Fórmula del cotizador: m², sillas, escritorios y baños, con mínimo y descuento por frecuencia. */
-export function computeEstimate(
-  input: {
-    squareMeters: number;
-    chairs: number;
-    desks: number;
-    bathrooms: number;
-    frequency: string;
-  },
-  pricing: ISettings["officePricing"],
-) {
+export interface OfficeInput {
+  squareMeters: number;
+  plan: string;
+  chairsFabric: number;
+  chairsMixed: number;
+  windows: number;
+  bathrooms: number;
+}
+
+/**
+ * Fórmula real del catálogo (el front la replica igual en `composables/office/officePricing.ts`):
+ * m² × tarifa del plan (Básico / Profundo) + sillas de tela y mixtas por unidad + ventanales y
+ * sanitarios por tramos (el precio del tramo alcanzado aplica a todas las unidades).
+ * Plan mensual = tarifa especial: sin estimado (null) y sin desglose; el equipo contacta.
+ */
+export function computeEstimate(input: OfficeInput, pricing: ISettings["officePricing"]) {
+  if (input.plan === "mensual") return { estimate: null, breakdown: [] };
   const breakdown: { label: string; amount: number }[] = [];
   const add = (label: string, amount: number) =>
     amount > 0 && breakdown.push({ label, amount: Math.round(amount) });
-  add(`Área: ${input.squareMeters} m²`, input.squareMeters * pricing.pricePerM2);
-  add(`Sillas: ${input.chairs}`, input.chairs * pricing.pricePerChair);
-  add(`Escritorios: ${input.desks}`, input.desks * pricing.pricePerDesk);
-  add(`Baños: ${input.bathrooms}`, input.bathrooms * pricing.pricePerBathroom);
-  let estimate = breakdown.reduce((s, r) => s + r.amount, 0);
-  // Mismo orden que la vista previa del front (descuento y luego mínimo), o no cuadran.
-  const pct = (pricing.frequencyDiscounts as any)?.[input.frequency] ?? 0;
-  if (pct > 0) {
-    const discount = Math.round((estimate * pct) / 100);
-    breakdown.push({
-      label: `Descuento ${FREQ_LABEL[input.frequency]} (${pct}%)`,
-      amount: -discount,
-    });
-    estimate -= discount;
+  const perM2 = input.plan === "profundo" ? pricing.deepPerM2 : pricing.basicPerM2;
+  add(
+    `Limpieza ${PLAN_LABEL[input.plan]}: ${input.squareMeters} m² × ${formatMoney(perM2)}`,
+    input.squareMeters * perM2,
+  );
+  add(
+    `Sillas de tela: ${input.chairsFabric} × ${formatMoney(pricing.chairFabric)}`,
+    input.chairsFabric * pricing.chairFabric,
+  );
+  add(
+    `Sillas mixtas: ${input.chairsMixed} × ${formatMoney(pricing.chairMixed)}`,
+    input.chairsMixed * pricing.chairMixed,
+  );
+  if (input.windows > 0) {
+    const unit = tierUnitPrice(pricing.windowTiers, input.windows) ?? 0;
+    add(`Ventanales: ${input.windows} × ${formatMoney(unit)}`, input.windows * unit);
   }
-  if (estimate < pricing.minimum) {
-    breakdown.push({ label: "Ajuste a valor mínimo", amount: pricing.minimum - estimate });
-    estimate = pricing.minimum;
+  if (input.bathrooms > 0) {
+    const unit = tierUnitPrice(pricing.bathroomTiers, input.bathrooms) ?? 0;
+    add(`Desinfección de sanitarios: ${input.bathrooms} × ${formatMoney(unit)}`, input.bathrooms * unit);
   }
-  return { estimate, breakdown };
+  return { estimate: breakdown.reduce((s, r) => s + r.amount, 0), breakdown };
 }
 
-function parseInput(body: any) {
-  const frequency = String(body?.frequency ?? "unica");
-  if (!(QUOTE_FREQUENCIES as readonly string[]).includes(frequency))
-    throw new CustomError("Frecuencia inválida", 400);
-  return {
+function parseInput(body: any, pricing: ISettings["officePricing"]): OfficeInput {
+  const plan = String(body?.plan ?? "basico");
+  if (!(QUOTE_PLANS as readonly string[]).includes(plan))
+    throw new CustomError("Elige un plan: Básico, Profundo o Plan mensual", 400);
+  const input = {
     squareMeters: count(body?.squareMeters, "El área en m²", 100000, true),
-    chairs: count(body?.chairs, "El número de sillas", 10000),
-    desks: count(body?.desks, "El número de escritorios", 10000),
+    plan,
+    chairsFabric: count(body?.chairsFabric, "El número de sillas de tela", 10000),
+    chairsMixed: count(body?.chairsMixed, "El número de sillas mixtas", 10000),
+    windows: count(body?.windows, "El número de ventanales", 10000),
     bathrooms: count(body?.bathrooms, "El número de baños", 1000),
-    frequency,
   };
+  const minWindows = tierMinQty(pricing.windowTiers);
+  if (input.windows > 0 && input.windows < minWindows) {
+    throw new CustomError(`La limpieza de ventanales es desde ${minWindows} unidades`, 400);
+  }
+  return input;
 }
 
 export async function createOfficeQuote(body: any) {
@@ -91,11 +114,9 @@ export async function createOfficeQuote(body: any) {
     if (!(await Branch.exists({ _id: branch, active: true })))
       throw new CustomError("Sucursal no encontrada", 404);
   }
-  const input = parseInput(body);
-  if (!input.squareMeters && !input.chairs && !input.desks && !input.bathrooms) {
-    throw new CustomError("Indica al menos los m² de la oficina", 400);
-  }
   const settings = await getSettings();
+  const input = parseInput(body, settings.officePricing);
+  if (!input.squareMeters) throw new CustomError("Indica los m² de la oficina", 400);
   const { estimate, breakdown } = computeEstimate(input, settings.officePricing);
   const quote = await OfficeQuote.create({
     code: await nextCode("officeQuote", "COT"),
@@ -170,18 +191,13 @@ export async function updateOfficeQuote(id: string, body: any, user: SessionUser
       quote.branch = new Types.ObjectId(b);
     }
   }
-  const recalc = ["squareMeters", "chairs", "desks", "bathrooms", "frequency"].some(
-    (k) => body?.[k] !== undefined,
-  );
-  if (recalc) {
-    const input = parseInput({
-      squareMeters: body.squareMeters ?? quote.squareMeters,
-      chairs: body.chairs ?? quote.chairs,
-      desks: body.desks ?? quote.desks,
-      bathrooms: body.bathrooms ?? quote.bathrooms,
-      frequency: body.frequency ?? quote.frequency,
-    });
-    Object.assign(quote, input, computeEstimate(input, (await getSettings()).officePricing));
+  const fields = ["squareMeters", "plan", "chairsFabric", "chairsMixed", "windows", "bathrooms"];
+  if (fields.some((k) => body?.[k] !== undefined)) {
+    const pricing = (await getSettings()).officePricing;
+    const merged: any = {};
+    for (const k of fields) merged[k] = body[k] ?? (quote as any)[k];
+    const input = parseInput(merged, pricing);
+    Object.assign(quote, input, computeEstimate(input, pricing));
   }
   // Ajuste manual del valor final (negociado con el cliente).
   if (body?.estimate !== undefined) {
@@ -201,6 +217,9 @@ export async function updateOfficeQuote(id: string, body: any, user: SessionUser
 export async function convertOfficeQuote(id: string, body: any, user: SessionUser) {
   const quote = await loadScoped(id, user);
   if (quote.booking) throw new CustomError("Esta cotización ya tiene un pedido", 409);
+  if (quote.estimate === null || quote.estimate === undefined) {
+    throw new CustomError("Define primero el valor acordado (plan mensual: tarifa especial)", 409);
+  }
   let branch = body?.branch ?? (quote.branch ? String(quote.branch) : undefined);
   if (!branch) {
     // Cotización sin sucursal: la primera sucursal activa a la que el usuario tiene acceso.
@@ -214,13 +233,13 @@ export async function convertOfficeQuote(id: string, body: any, user: SessionUse
     if (!candidates.length) throw new CustomError("Elige la sucursal del pedido", 400);
     branch = String(candidates[0]._id);
   }
-  const freq = quote.frequency !== "unica" ? ` · ${quote.frequency}` : "";
+  const plan = ` · ${PLAN_LABEL[quote.plan] ?? quote.plan}`;
   const { bookingId } = await createBooking(
     {
       branch,
       items: [
         {
-          name: `Limpieza de oficina (${quote.code}${freq})`,
+          name: `Limpieza de oficina (${quote.code}${plan})`,
           unitPrice: quote.estimate,
           quantity: 1,
         },

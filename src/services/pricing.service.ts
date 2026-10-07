@@ -1,7 +1,9 @@
 import { isValidObjectId } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import { IBookingItem } from "../models/booking.model";
-import { Service } from "../models/service.model";
+import { IService, Service } from "../models/service.model";
+import { str } from "../utils/http";
+import { tierMinQty, tierUnitPrice } from "../utils/tiers";
 
 const MIN_DURATION = 30;
 const MAX_DURATION = 8 * 60;
@@ -11,6 +13,52 @@ export interface PricedOrder {
   subtotal: number;
   total: number;
   durationMinutes: number;
+}
+
+/**
+ * Precio de una línea del catálogo. Reglas (el front las replica en `utils/pricing.ts`):
+ * - con variantes: el precio de la opción elegida (con rango, se cobra el menor);
+ * - con tramos: el precio del tramo alcanzado para todas las unidades, respetando el mínimo;
+ * - si no, el precio base. Las líneas por m² multiplican por m² (decimales).
+ * La duración interna se multiplica por la cantidad solo en servicios por unidad sin tramos:
+ * 6 ventanales o 40 m² no son 6 o 40 turnos.
+ */
+export function priceLine(
+  s: Pick<IService, "name" | "price" | "priceMax" | "unit" | "durationMinutes" | "minQty"> & {
+    variants?: IService["variants"];
+    priceTiers?: IService["priceTiers"];
+  },
+  variant: string,
+  quantity: number,
+) {
+  let unitPrice = s.price;
+  let unitPriceMax = s.priceMax ?? 0;
+  let perUnitDuration = s.durationMinutes ?? 0;
+  const v = s.variants?.find((x) => x.label === variant);
+  if (v) {
+    unitPrice = v.price;
+    unitPriceMax = v.priceMax ?? 0;
+    if (v.durationMinutes) perUnitDuration = v.durationMinutes;
+  }
+  const tiers = s.priceTiers ?? [];
+  const minQty = Math.max(s.minQty ?? 1, tiers.length ? tierMinQty(tiers) : 1);
+  if (quantity < minQty) {
+    throw new CustomError(`"${s.name}" se contrata desde ${minQty} unidades`, 400);
+  }
+  if (tiers.length) {
+    const tierPrice = tierUnitPrice(tiers, quantity);
+    if (tierPrice === null) {
+      throw new CustomError(`"${s.name}" se contrata desde ${minQty} unidades`, 400);
+    }
+    unitPrice = tierPrice;
+    unitPriceMax = 0;
+  }
+  const multiplies = s.unit !== "m2" && !tiers.length;
+  return {
+    unitPrice,
+    unitPriceMax: unitPriceMax > unitPrice ? unitPriceMax : 0,
+    duration: multiplies ? perUnitDuration * quantity : perUnitDuration,
+  };
 }
 
 /**
@@ -46,7 +94,10 @@ export async function priceItems(
     customItems.push({
       service: null,
       name,
+      variant: "",
       unitPrice,
+      unitPriceMax: 0,
+      unit: "unidad",
       quantity: q,
       subtotal: Math.round(unitPrice * q),
       isExtra: false,
@@ -61,13 +112,21 @@ export async function priceItems(
   const services = await Service.find({ _id: { $in: ids } }).lean();
   const byId = new Map(services.map((s) => [String(s._id), s]));
 
-  // Si el mismo servicio viene dos veces se suman las cantidades.
-  const merged = new Map<string, number>();
+  // Si el mismo servicio (y la misma opción) viene dos veces se suman las cantidades:
+  // así los tramos por cantidad se calculan sobre el total.
+  const merged = new Map<string, { id: string; variant: string; quantity: number }>();
   for (const raw of rawItems as any[]) {
     const id = String(raw.service);
     const service = byId.get(id);
     if (!service || (!service.active && !allowInactive)) {
       throw new CustomError("Uno de los servicios ya no está disponible", 400);
+    }
+    const variant = str(raw.variant, 120);
+    if (service.variants?.length) {
+      if (!variant) throw new CustomError(`Elige una opción para "${service.name}"`, 400);
+      if (!service.variants.some((v) => v.label === variant)) {
+        throw new CustomError(`La opción "${variant}" ya no existe en "${service.name}"`, 400);
+      }
     }
     const q = Number(raw.quantity ?? 1);
     const valid =
@@ -82,23 +141,30 @@ export async function priceItems(
         400,
       );
     }
-    merged.set(id, (merged.get(id) ?? 0) + Math.round(q * 100) / 100);
+    const key = `${id}|${service.variants?.length ? variant : ""}`;
+    const row = merged.get(key) ?? { id, variant: service.variants?.length ? variant : "", quantity: 0 };
+    row.quantity = Math.round((row.quantity + q) * 100) / 100;
+    merged.set(key, row);
   }
 
   const items: IBookingItem[] = [...customItems];
   // Una línea libre no tiene duración en el catálogo: se asume un turno.
   let duration = customItems.length ? 60 : 0;
-  for (const [id, quantity] of merged) {
+  for (const { id, variant, quantity } of merged.values()) {
     const s = byId.get(id)!;
+    const line = priceLine(s, variant, quantity);
     items.push({
       service: s._id as any,
       name: s.name,
-      unitPrice: s.price,
+      variant,
+      unitPrice: line.unitPrice,
+      unitPriceMax: line.unitPriceMax,
+      unit: s.unit,
       quantity,
-      subtotal: Math.round(s.price * quantity),
+      subtotal: Math.round(line.unitPrice * quantity),
       isExtra: s.isExtra,
     });
-    duration += (s.durationMinutes ?? 0) * quantity;
+    duration += line.duration;
   }
   if (!items.some((i) => !i.isExtra)) {
     throw new CustomError("Los adicionales se agregan junto a un servicio principal", 400);

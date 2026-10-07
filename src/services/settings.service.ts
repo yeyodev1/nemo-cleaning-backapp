@@ -36,11 +36,18 @@ export async function getPublicSettings() {
   };
 }
 
-function percent(value: unknown, label: string): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > 100)
-    throw new CustomError(`${label} debe estar entre 0 y 100`, 400);
-  return Math.round(n);
+function parseTiers(raw: unknown, label: string) {
+  if (!Array.isArray(raw) || !raw.length)
+    throw new CustomError(`Los tramos de ${label} deben ser una lista con al menos uno`, 400);
+  const out = raw.map((t: any) => {
+    const minQty = Number(t?.minQty);
+    if (!Number.isInteger(minQty) || minQty < 1 || minQty > 1000)
+      throw new CustomError(`Tramo de ${label}: la cantidad mínima debe ser un entero ≥ 1`, 400);
+    return { minQty, unitPrice: cents(t?.unitPrice, `El precio del tramo de ${label}`) };
+  });
+  if (new Set(out.map((t) => t.minQty)).size !== out.length)
+    throw new CustomError(`Hay tramos de ${label} con la misma cantidad mínima`, 400);
+  return out.sort((a, b) => a.minQty - b.minQty);
 }
 
 export async function updateSettings(body: any) {
@@ -69,22 +76,13 @@ export async function updateSettings(body: any) {
   const op = body?.officePricing;
   if (op && typeof op === "object") {
     const cur = s.officePricing;
-    if (op.pricePerM2 !== undefined) cur.pricePerM2 = cents(op.pricePerM2, "pricePerM2");
-    if (op.pricePerChair !== undefined)
-      cur.pricePerChair = cents(op.pricePerChair, "pricePerChair");
-    if (op.pricePerDesk !== undefined) cur.pricePerDesk = cents(op.pricePerDesk, "pricePerDesk");
-    if (op.pricePerBathroom !== undefined)
-      cur.pricePerBathroom = cents(op.pricePerBathroom, "pricePerBathroom");
-    if (op.minimum !== undefined) cur.minimum = cents(op.minimum, "minimum");
-    const fd = op.frequencyDiscounts;
-    if (fd && typeof fd === "object") {
-      if (fd.semanal !== undefined)
-        cur.frequencyDiscounts.semanal = percent(fd.semanal, "El descuento semanal");
-      if (fd.quincenal !== undefined)
-        cur.frequencyDiscounts.quincenal = percent(fd.quincenal, "El descuento quincenal");
-      if (fd.mensual !== undefined)
-        cur.frequencyDiscounts.mensual = percent(fd.mensual, "El descuento mensual");
-    }
+    if (op.basicPerM2 !== undefined) cur.basicPerM2 = cents(op.basicPerM2, "basicPerM2");
+    if (op.deepPerM2 !== undefined) cur.deepPerM2 = cents(op.deepPerM2, "deepPerM2");
+    if (op.chairFabric !== undefined) cur.chairFabric = cents(op.chairFabric, "chairFabric");
+    if (op.chairMixed !== undefined) cur.chairMixed = cents(op.chairMixed, "chairMixed");
+    if (op.windowTiers !== undefined) cur.windowTiers = parseTiers(op.windowTiers, "ventanales");
+    if (op.bathroomTiers !== undefined)
+      cur.bathroomTiers = parseTiers(op.bathroomTiers, "sanitarios");
     s.markModified("officePricing");
   }
   if (body?.bookingLeadHours !== undefined) {

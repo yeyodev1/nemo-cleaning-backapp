@@ -36,7 +36,7 @@ function codeEmail(code: string, audience: LoginAudience): string {
     "Tu código de acceso",
     `<p style="margin:0 0 8px">${escapeHtml(intro)}</p>
      <p style="margin:24px 0;text-align:center">
-       <span style="display:inline-block;padding:16px 28px;border-radius:14px;background:#EEF6FB;border:2px solid ${BRAND.aqua};font-size:36px;font-weight:bold;letter-spacing:10px;color:${BRAND.blue};font-family:'Courier New',Courier,monospace">${escapeHtml(code)}</span>
+       <span style="display:inline-block;padding:16px 28px;border-radius:14px;background:#F3F6F9;border:2px solid ${BRAND.orange};font-size:36px;font-weight:bold;letter-spacing:10px;color:${BRAND.navy};font-family:'Courier New',Courier,monospace">${escapeHtml(code)}</span>
      </p>
      <p style="margin:0 0 8px;text-align:center;color:${BRAND.muted}">El código vence en <strong>10 minutos</strong> y solo se puede usar una vez.</p>
      <p style="margin:24px 0 0;font-size:13px;color:${BRAND.muted}">Si no pediste este código, ignora este correo: nadie puede entrar sin él.</p>`,

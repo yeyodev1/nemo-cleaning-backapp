@@ -82,7 +82,12 @@ export async function listBookings(id: string, query: any) {
     code: b.code,
     branch: String(b.branch),
     branchName: branchName.get(String(b.branch)) ?? "",
-    items: (b.items ?? []).map((i: any) => ({ name: i.name, quantity: i.quantity })),
+    items: (b.items ?? []).map((i: any) => ({
+      name: i.name,
+      variant: i.variant ?? "",
+      unit: i.unit ?? "unidad",
+      quantity: i.quantity,
+    })),
     total: b.total,
     amountPaid: b.amountPaid,
     balance: b.balance,
