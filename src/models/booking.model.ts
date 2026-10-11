@@ -43,6 +43,8 @@ export interface IBookingItem {
   name: string;
   /** Opción elegida (tamaño, medida, plan…); "" si el servicio no tiene variantes. */
   variant: string;
+  /** Opción incluida elegida sin costo (techo o asientos); "" si el servicio no la pide. */
+  choice: string;
   unitPrice: number;
   /** Tope del rango de precio (solo informativo); 0 = precio fijo. */
   unitPriceMax: number;
@@ -67,6 +69,17 @@ export interface INovedad {
   operator: Types.ObjectId | null;
   by: { id: string; name: string };
   at: Date;
+}
+
+/**
+ * Ubicación GPS del servicio (Vía a la Costa: las direcciones no siempre llegan). Puede venir
+ * del GPS del celular (lat/lng + precisión en metros) o de un enlace de Google Maps pegado.
+ */
+export interface IBookingLocation {
+  lat: number | null;
+  lng: number | null;
+  accuracy: number;
+  url: string;
 }
 
 export interface IBooking extends Document {
@@ -94,7 +107,15 @@ export interface IBooking extends Document {
   amountPaid: number;
   balance: number;
   transferProofUrl: string;
-  invoice: { required: boolean; name: string; documentId: string; email: string; address: string };
+  invoice: {
+    required: boolean;
+    name: string;
+    documentId: string;
+    email: string;
+    phone: string;
+    address: string;
+  };
+  location?: IBookingLocation;
   officeQuote: Types.ObjectId | null;
   /** Urbanización / zona del servicio (lista por sucursal, o texto libre si es "Otra"). */
   zone: string;
@@ -117,6 +138,7 @@ const itemSchema = new Schema<IBookingItem>(
     service: { type: Schema.Types.ObjectId, ref: "Service", default: null },
     name: { type: String, required: true },
     variant: { type: String, default: "" },
+    choice: { type: String, default: "" },
     unitPrice: { type: Number, required: true, min: 0 },
     unitPriceMax: { type: Number, default: 0, min: 0 },
     unit: { type: String, default: "unidad" },
@@ -176,7 +198,20 @@ const bookingSchema = new Schema<IBooking>(
       name: { type: String, default: "" },
       documentId: { type: String, default: "" },
       email: { type: String, default: "" },
+      phone: { type: String, default: "" },
       address: { type: String, default: "" },
+    },
+    location: {
+      type: new Schema<IBookingLocation>(
+        {
+          lat: { type: Number, default: null },
+          lng: { type: Number, default: null },
+          accuracy: { type: Number, default: 0 },
+          url: { type: String, default: "" },
+        },
+        { _id: false },
+      ),
+      default: undefined,
     },
     officeQuote: { type: Schema.Types.ObjectId, ref: "OfficeQuote", default: null },
     zone: { type: String, default: "" },

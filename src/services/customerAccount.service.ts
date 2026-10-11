@@ -85,6 +85,7 @@ export async function listBookings(id: string, query: any) {
     items: (b.items ?? []).map((i: any) => ({
       name: i.name,
       variant: i.variant ?? "",
+      choice: i.choice ?? "",
       unit: i.unit ?? "unidad",
       quantity: i.quantity,
     })),

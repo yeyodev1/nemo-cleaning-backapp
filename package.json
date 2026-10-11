@@ -14,7 +14,8 @@
     "start": "node dist/index.js",
     "seed": "ts-node-dev --transpile-only src/scripts/seed.ts",
     "format": "prettier --write 'src/**/*.{ts,json,md}' 'api/**/*.ts'",
-    "seed:catalog-real": "ts-node-dev --transpile-only src/scripts/seedCatalogReal.ts"
+    "seed:catalog-real": "ts-node-dev --transpile-only src/scripts/seedCatalogReal.ts",
+    "migrate:2026-10": "ts-node-dev --transpile-only src/scripts/migratePrices202610.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",

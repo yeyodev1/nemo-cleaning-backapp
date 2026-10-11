@@ -37,6 +37,9 @@ export interface CatalogItem {
   variants?: CatalogVariant[];
   priceTiers?: { minQty: number; unitPrice: number }[];
   minQty?: number;
+  /** Opción incluida que elige el cliente sin cambiar el precio (techo o asientos). */
+  choices?: string[];
+  choiceLabel?: string;
   isExtra?: boolean;
 }
 
@@ -127,8 +130,12 @@ export const REAL_CATALOG: CatalogItem[] = [
       "Limpieza profunda de cabina",
       "Eliminación de suciedad acumulada",
       "Desinfección y restauración de superficies internas",
+      "Incluye limpieza de techo o de asientos (a elección)",
     ],
-    variants: car3(4000, 4500, 5000),
+    // Oct-2026: sube a "desde $55" e incluye techo o asientos. Se mantiene el salto de $5 por tamaño.
+    variants: car3(5500, 6000, 6500),
+    choices: ["Techo", "Asientos"],
+    choiceLabel: "Incluye limpieza de",
     durationMinutes: 60,
   },
   {
@@ -283,7 +290,11 @@ export const REAL_CATALOG: CatalogItem[] = [
     category: "autos",
     unit: "servicio",
     isExtra: true,
-    price: 3000,
+    // Oct-2026: $25 (pequeño y mediano) y $30 (grande y extra grande).
+    variants: [
+      { label: "Pequeño y Mediano", price: 2500 },
+      { label: "Grande y Extra Grande", price: 3000 },
+    ],
     durationMinutes: 30,
   },
   {
@@ -322,14 +333,15 @@ export const REAL_CATALOG: CatalogItem[] = [
       "Aromatización (neutra o personalizada)",
     ],
     variants: [
-      { label: "1.80 x 0.60 m", price: 1500 },
+      // Oct-2026: las alfombras parten de $20.
+      { label: "1.80 x 0.60 m", price: 2000 },
       { label: "1.80/2 x 1.20 m", price: 2000 },
       { label: "2.40 x 1.80 m", price: 3000 },
       { label: "2.40 x 3.00 m", price: 3500 },
       { label: "Oversize", price: 4000 },
     ],
     durationMinutes: 60,
-    deliveryNote: "Tiempo de entrega: 24 – 48 horas",
+    deliveryNote: "Tiempo de entrega: 48 – 72 horas",
   },
   {
     slug: "limpieza-de-sillas",
@@ -524,6 +536,8 @@ export function toServiceDoc(item: CatalogItem, index: number) {
     variants,
     priceTiers: tiers,
     minQty: item.minQty ?? 1,
+    choices: item.choices ?? [],
+    choiceLabel: item.choiceLabel ?? "",
     isExtra: item.isExtra ?? false,
     active: true,
     order: (index + 1) * 10,

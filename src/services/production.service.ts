@@ -245,7 +245,7 @@ function rowOf(b: any) {
     customer: b.customer ? { _id: String(b.customer._id), name: b.customer.name, phone: b.customer.phone } : null,
     operators: (b.operators ?? []).map((o: any) => ({ _id: String(o._id), name: o.name, color: o.color })),
     zone: b.zone ?? "",
-    items: (b.items ?? []).map((i: any) => ({ name: i.name, variant: i.variant, quantity: i.quantity, subtotal: i.subtotal })),
+    items: (b.items ?? []).map((i: any) => ({ name: i.name, variant: i.variant, choice: i.choice ?? "", quantity: i.quantity, subtotal: i.subtotal })),
     total: b.total,
     tip: b.tip ?? 0,
     paymentAccount: b.paymentAccount ?? "",

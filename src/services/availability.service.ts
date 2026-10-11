@@ -19,7 +19,9 @@ export async function branchCapacity(branchId: Types.ObjectId | string): Promise
   return Math.max(1, count);
 }
 
-function slotTimes(branch: IBranch): string[] {
+export function slotTimes(branch: IBranch): string[] {
+  // Horas fijas configuradas (8:00, 9:30, 11:00…): mandan sobre la grilla automática.
+  if (branch.slotTimes?.length) return [...branch.slotTimes].sort();
   const open = minutesOf(branch.openingTime || "08:00");
   const close = minutesOf(branch.closingTime || "18:00");
   const step = branch.slotMinutes || 60;
