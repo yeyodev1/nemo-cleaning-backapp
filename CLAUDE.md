@@ -14,6 +14,7 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 - **Build:** `pnpm build` (tsc → `dist/`) — es la única verificación; no hay linter ni tests.
 - **Start prod:** `pnpm start`
 - **Seed:** `pnpm seed` (sucursales, catálogo real si está vacío, settings y admin; idempotente)
+- **Cambios oct-2026:** `pnpm migrate:2026-10` (solo Detailing Interior, alfombras, techo y turnos fijos; idempotente)
 - **Migrar catálogo:** `pnpm seed:catalog-real` (upsert por slug del catálogo real de `src/data/realCatalog.ts`, retira el
   de ejemplo y escribe `officePricing`; idempotente, no toca usuarios)
 - **Format:** `pnpm format`
@@ -42,7 +43,7 @@ sucursales Samborondón y Vía a la Costa). La fuente de verdad compartida con e
 - **Catálogo real:** sale de `../recursos/MARCA.md` → `src/data/realCatalog.ts`. No inventar servicios ni precios.
   Cotizador de oficinas = m² × plan (Básico/Profundo) + sillas + ventanales/sanitarios por tramos; plan mensual sin precio.
 - **Fechas:** `date` = `"YYYY-MM-DD"`, `time` = `"HH:mm"` en hora de Guayaquil (UTC-5 fijo, ver `utils/date.ts`); `startAt` guarda el instante.
-- **Disponibilidad** (`availability.service.ts`): turnos de `openingTime` a `closingTime` cada `slotMinutes` en `workDays`. Un turno se cierra si ya pasó / cae dentro de `bookingLeadHours`, o si los pedidos activos que se cruzan con él (según su `durationMinutes`) ≥ lavadores activos de la sucursal (mínimo 1). El panel puede agendar sin esa validación.
+- **Disponibilidad** (`availability.service.ts`): turnos = `Branch.slotTimes` (horas fijas; el seed pone 8:00 · 9:30 · 11:00 · 13:00 · 14:30 · 16:00 con `slotMinutes` 90) o, si está vacío, de `openingTime` a `closingTime` cada `slotMinutes`, en `workDays`. Un turno se cierra si ya pasó / cae dentro de `bookingLeadHours`, o si los pedidos activos que se cruzan con él (según su `durationMinutes`) ≥ lavadores activos de la sucursal (mínimo 1). El panel puede agendar sin esa validación.
 - **Pagos:** `payment.service.ts#recalculatePayments` es el único que calcula `amountPaid`, `balance` y `paymentStatus` desde los `Payment`. Ingreso = pagos `approved` por `paidAt`. Un pago aprobado confirma un pedido `pending`.
 - **Payphone:** `payphone.service.ts`. Cada intento es un `Payment` `pending` con `clientTransactionId` ≤ 50; la confirmación es idempotente y con reclamo atómico.
 - **Roles:** `admin` todo; `manager` limitado a sus `branches` (`utils/scope.ts`: pedir una sucursal ajena es 403) y solo caja menor; `operator` solo `/operator/*` sobre servicios asignados.
