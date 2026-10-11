@@ -53,12 +53,6 @@ export interface IService extends Document {
   priceTiers: IPriceTier[];
   /** Cantidad mínima por pedido (ventanales: 2). */
   minQty: number;
-  /**
-   * Opción incluida que el cliente elige sin cambiar el precio (Detailing Interior: techo o
-   * asientos). Vacío = el servicio no pide elegir. `choiceLabel` es la pregunta: "Incluye limpieza de".
-   */
-  choices: string[];
-  choiceLabel: string;
   isExtra: boolean;
   active: boolean;
   order: number;
@@ -100,8 +94,6 @@ const serviceSchema = new Schema<IService>(
     variants: { type: [variantSchema], default: [] },
     priceTiers: { type: [tierSchema], default: [] },
     minQty: { type: Number, default: 1, min: 0 },
-    choices: { type: [String], default: [] },
-    choiceLabel: { type: String, default: "" },
     isExtra: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
     order: { type: Number, default: 0 },

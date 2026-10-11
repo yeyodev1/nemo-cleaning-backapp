@@ -84,54 +84,19 @@ function historyEntry(by: string, action: string, note = "") {
   return { at: new Date(), by, action, note: note.slice(0, 500) };
 }
 
-/** `strict` = la web: la factura pide también un teléfono de contacto. El panel completa lo que tenga. */
-function parseInvoice(raw: any, { strict = false } = {}) {
+function parseInvoice(raw: any) {
   const required = Boolean(raw?.required);
   const invoice = {
     required,
     name: str(raw?.name, 160),
     documentId: str(raw?.documentId, 20),
     email: str(raw?.email, 200).toLowerCase(),
-    phone: str(raw?.phone, 30),
     address: str(raw?.address, 300),
   };
   if (required && (!invoice.name || !invoice.documentId)) {
     throw new CustomError("Para la factura escribe el nombre y la cédula o RUC", 400);
   }
-  if (required && strict && invoice.phone.replace(/\D/g, "").length < 7) {
-    throw new CustomError("Para la factura escribe un teléfono válido", 400);
-  }
   return invoice;
-}
-
-const MAPS_URL_RE = /^https:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl\/maps)\S*$/i;
-
-/**
- * Ubicación del servicio: `{ lat, lng, accuracy }` del GPS del celular y/o `url` de Google Maps.
- * null/{} la borra. Fuera de rango o un enlace que no es de Google Maps = 400.
- */
-function parseLocation(raw: any) {
-  if (raw === null || raw === undefined) return undefined;
-  const hasCoords = raw.lat !== undefined && raw.lat !== null && raw.lng !== undefined && raw.lng !== null;
-  const url = str(raw.url, 500);
-  if (!hasCoords && !url) return undefined;
-  let lat: number | null = null;
-  let lng: number | null = null;
-  if (hasCoords) {
-    lat = Number(raw.lat);
-    lng = Number(raw.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-      throw new CustomError("La ubicación GPS no es válida", 400);
-    }
-    // 6 decimales ≈ 10 cm: suficiente y no guarda ruido del sensor.
-    lat = Math.round(lat * 1e6) / 1e6;
-    lng = Math.round(lng * 1e6) / 1e6;
-  }
-  if (url && !MAPS_URL_RE.test(url)) {
-    throw new CustomError("Pega un enlace de Google Maps (https://maps.app.goo.gl/…)", 400);
-  }
-  const accuracy = Math.max(0, Math.min(100000, Math.round(Number(raw.accuracy) || 0)));
-  return { lat, lng, accuracy: hasCoords ? accuracy : 0, url };
 }
 
 /**
@@ -261,7 +226,6 @@ async function publicView(b: any) {
     balance: b.balance,
     transferProofUrl: b.transferProofUrl,
     invoice: b.invoice,
-    location: b.location ?? null,
     canCancel,
     canPayWithCard:
       isPayphoneEnabled() &&
@@ -352,8 +316,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
     status = body.status;
   }
   const operators = isAdmin ? await parseOperators(body?.operators) : [];
-  const invoice = parseInvoice(body?.invoice, { strict: !isAdmin });
-  const location = parseLocation(body?.location);
+  const invoice = parseInvoice(body?.invoice);
   // En el panel el cliente puede venir elegido por su id (búsqueda por teléfono del pedido rápido).
   const pickedId =
     isAdmin && isValidObjectId(String(body?.customer?._id ?? "")) ? String(body.customer._id) : undefined;
@@ -407,7 +370,6 @@ export async function createBooking(body: any, opts: CreateOptions) {
     notes: str(body?.notes, 1000),
     // Urbanización elegida en la web (lista de la sucursal o "Otra" escrita a mano).
     zone: str(body?.zone, 80),
-    ...(location ? { location } : {}),
     ...(isAdmin && body?.tip !== undefined ? { tip: cents(body.tip, "La propina") } : {}),
     ...(isAdmin && body?.paymentAccount !== undefined ? { paymentAccount: str(body.paymentAccount, 80) } : {}),
     ...(paymentConfirmation ? { paymentConfirmation } : {}),
@@ -735,7 +697,6 @@ export async function updateAdminBooking(id: string, body: any, user: SessionUse
     booking.paymentConfirmation = body.paymentConfirmation;
   }
   if (body?.invoice !== undefined) booking.invoice = parseInvoice(body.invoice);
-  if (body?.location !== undefined) booking.location = parseLocation(body.location);
   if (body?.paymentMethod !== undefined) {
     if (!(PAYMENT_METHODS as readonly string[]).includes(String(body.paymentMethod))) {
       throw new CustomError("Método de pago inválido", 400);

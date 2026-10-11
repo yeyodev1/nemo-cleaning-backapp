@@ -1,5 +1,5 @@
 import { isConnected } from "../config/mongo";
-import { Branch, DEFAULT_SLOT_MINUTES, DEFAULT_SLOT_TIMES } from "../models/branch.model";
+import { Branch } from "../models/branch.model";
 import { ensureUserEmailIndex } from "../models/user.model";
 import { Service } from "../models/service.model";
 import { REAL_CATALOG, toServiceDoc } from "../data/realCatalog";
@@ -53,11 +53,6 @@ export async function seedBaseData(): Promise<void> {
       await Branch.updateOne(
         { slug: b.slug, zones: { $exists: false } },
         { $set: { zones: DEFAULT_ZONES[b.slug] ?? [] } },
-      );
-      // Turnos fijos solo la primera vez: luego gerencia los edita en Sucursales.
-      await Branch.updateOne(
-        { slug: b.slug, slotTimes: { $exists: false } },
-        { $set: { slotTimes: DEFAULT_SLOT_TIMES, slotMinutes: DEFAULT_SLOT_MINUTES } },
       );
     }
     if ((await Service.estimatedDocumentCount()) === 0) {

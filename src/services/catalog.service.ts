@@ -61,12 +61,6 @@ function applyFields(target: any, body: any) {
     target.features = body.features.map((f: unknown) => str(f, 200)).filter(Boolean).slice(0, 20);
   }
   if (body?.variants !== undefined) target.variants = parseVariants(body.variants);
-  if (body?.choices !== undefined) {
-    if (!Array.isArray(body.choices)) throw new CustomError("choices debe ser una lista", 400);
-    const choices = body.choices.map((c: unknown) => str(c, 80)).filter(Boolean);
-    target.choices = [...new Set(choices)].slice(0, 6);
-  }
-  if (body?.choiceLabel !== undefined) target.choiceLabel = str(body.choiceLabel, 80);
   if (body?.priceTiers !== undefined) target.priceTiers = parseTiers(body.priceTiers);
   if (body?.minQty !== undefined) {
     const n = Number(body.minQty);

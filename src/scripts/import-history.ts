@@ -97,15 +97,23 @@ interface RawClient {
 }
 
 // ---------------------------------------------------------------------------
-// Personal: nombres, cargos y sueldos vienen de `payroll.json` en la carpeta del historial
-// (fuera del repo: son datos privados del cliente). Formato:
-// { "supervisor": "Nombre", "payroll": { "<operador canónico>": { "name", "position", "salary" (centavos) } } }
+// Personal: nombres completos y cargos de la hoja "Nómina" (NEMO SAMBO).
 // ---------------------------------------------------------------------------
 
 type Position = "supervisor" | "base_assistant" | "washer" | "";
 
-let PAYROLL: Record<string, { name: string; position: Position; salary: number }> = {};
-let SUPERVISOR_NAME = "Supervisor";
+const PAYROLL: Record<string, { name: string; position: Position; salary: number }> = {
+  Jairo: { name: "Jairo Deleon", position: "base_assistant", salary: 56000 },
+  Joel: { name: "Joel Zúñiga", position: "washer", salary: 52000 },
+  Maikel: { name: "Maikel Candelario", position: "washer", salary: 52000 },
+  Oscar: { name: "Oscar Guala", position: "washer", salary: 52000 },
+  "José": { name: "José Macías", position: "washer", salary: 52000 },
+  Israel: { name: "Israel", position: "washer", salary: 52000 },
+  "Carlos López": { name: "Carlos López", position: "washer", salary: 52000 },
+  "Mathias Resabala": { name: "Mathias Resabala", position: "washer", salary: 0 },
+  Luis: { name: "Luis", position: "washer", salary: 0 },
+};
+const SUPERVISOR_NAME = "Juan Herrera";
 const PSEUDO_OPERATOR = "VIA LA COSTA (equipo)";
 const PSEUDO_NAME = "Vía a la Costa (histórico)";
 
@@ -318,11 +326,6 @@ async function main() {
   const warn = (w: string) => warnings.set(w, (warnings.get(w) ?? 0) + 1);
 
   const records = readJson<RawRecord[]>("clean.json").filter((r) => !r.duplicateOf);
-  if (fs.existsSync(path.join(DIR, "payroll.json"))) {
-    const payroll = readJson<{ supervisor?: string; payroll?: typeof PAYROLL }>("payroll.json");
-    PAYROLL = payroll.payroll ?? {};
-    if (payroll.supervisor) SUPERVISOR_NAME = payroll.supervisor;
-  }
   const operators = readJson<{ operators: RawOperator[] }>("operators.json").operators;
   const clients = readJson<{ clients: RawClient[] }>("clients.json").clients;
   console.log(`Filas a importar: ${records.length}${DRY ? " (simulación, no escribe nada)" : ""}`);

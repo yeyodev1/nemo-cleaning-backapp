@@ -72,13 +72,6 @@ async function loadContext(bookingId: string) {
   };
 }
 
-/** Enlace para abrir la ubicación: el pegado por el cliente o uno armado con las coordenadas. */
-export function mapsUrl(loc?: { lat?: number | null; lng?: number | null; url?: string } | null): string {
-  if (!loc) return "";
-  if (loc.lat != null && loc.lng != null) return `https://www.google.com/maps?q=${loc.lat},${loc.lng}`;
-  return loc.url ?? "";
-}
-
 type Ctx = NonNullable<Awaited<ReturnType<typeof loadContext>>>;
 
 function summary(ctx: Ctx, { prices = true } = {}): string {
@@ -86,7 +79,7 @@ function summary(ctx: Ctx, { prices = true } = {}): string {
   const rows = b.items
     .map(
       (i) =>
-        `<tr><td style="padding:6px 0">${escapeHtml(i.name)}${i.variant ? ` · ${escapeHtml(i.variant)}` : ""}${i.choice ? ` · incluye ${escapeHtml(i.choice.toLowerCase())}` : ""} × ${i.quantity}${i.unit === "m2" ? " m²" : ""}</td>${prices ? `<td align="right" style="padding:6px 0;color:${BRAND.navy};font-weight:bold">${formatMoney(i.subtotal)}</td>` : ""}</tr>`,
+        `<tr><td style="padding:6px 0">${escapeHtml(i.name)}${i.variant ? ` · ${escapeHtml(i.variant)}` : ""} × ${i.quantity}${i.unit === "m2" ? " m²" : ""}</td>${prices ? `<td align="right" style="padding:6px 0;color:${BRAND.navy};font-weight:bold">${formatMoney(i.subtotal)}</td>` : ""}</tr>`,
     )
     .join("");
   // Muebles con rango ($15 – $20): se cobra el menor y el catálogo pide avisarlo.
@@ -103,7 +96,6 @@ function summary(ctx: Ctx, { prices = true } = {}): string {
   <strong>Fecha:</strong> ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)}<br>
   <strong>Sucursal:</strong> ${escapeHtml(ctx.branch?.name ?? "")}<br>
   ${b.address ? `<strong>Dirección:</strong> ${escapeHtml(b.address)}${b.reference ? ` (${escapeHtml(b.reference)})` : ""}<br>` : ""}
-  ${mapsUrl(b.location) ? `<strong>Ubicación GPS:</strong> <a href="${escapeHtml(mapsUrl(b.location))}" style="color:${BRAND.navy}">Abrir en Google Maps</a><br>` : ""}
   <strong>Pago:</strong> ${METHOD_LABEL[b.paymentMethod] ?? b.paymentMethod}</p>
   <table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin:12px 0">${rows}${rangeNote}${totals}</table>`;
 }
