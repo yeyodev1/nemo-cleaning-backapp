@@ -95,6 +95,7 @@ export async function priceItems(
       service: null,
       name,
       variant: "",
+      choice: "",
       unitPrice,
       unitPriceMax: 0,
       unit: "unidad",
@@ -114,7 +115,7 @@ export async function priceItems(
 
   // Si el mismo servicio (y la misma opción) viene dos veces se suman las cantidades:
   // así los tramos por cantidad se calculan sobre el total.
-  const merged = new Map<string, { id: string; variant: string; quantity: number }>();
+  const merged = new Map<string, { id: string; variant: string; choice: string; quantity: number }>();
   for (const raw of rawItems as any[]) {
     const id = String(raw.service);
     const service = byId.get(id);
@@ -126,6 +127,19 @@ export async function priceItems(
       if (!variant) throw new CustomError(`Elige una opción para "${service.name}"`, 400);
       if (!service.variants.some((v) => v.label === variant)) {
         throw new CustomError(`La opción "${variant}" ya no existe en "${service.name}"`, 400);
+      }
+    }
+    // Opción incluida sin costo (techo o asientos): la web debe elegirla; el panel puede dejarla
+    // vacía (un pedido rápido por WhatsApp aún no lo sabe) y la completa después.
+    let choice = "";
+    if (service.choices?.length) {
+      choice = str(raw.choice, 80);
+      if (choice && !service.choices.includes(choice)) {
+        throw new CustomError(`La opción "${choice}" ya no existe en "${service.name}"`, 400);
+      }
+      if (!choice && !allowCustom) {
+        const options = service.choices.map((c) => c.toLowerCase()).join(" o ");
+        throw new CustomError(`"${service.name}": elige si incluye ${options}`, 400);
       }
     }
     const q = Number(raw.quantity ?? 1);
@@ -141,8 +155,13 @@ export async function priceItems(
         400,
       );
     }
-    const key = `${id}|${service.variants?.length ? variant : ""}`;
-    const row = merged.get(key) ?? { id, variant: service.variants?.length ? variant : "", quantity: 0 };
+    const key = `${id}|${service.variants?.length ? variant : ""}|${choice}`;
+    const row = merged.get(key) ?? {
+      id,
+      variant: service.variants?.length ? variant : "",
+      choice,
+      quantity: 0,
+    };
     row.quantity = Math.round((row.quantity + q) * 100) / 100;
     merged.set(key, row);
   }
@@ -150,13 +169,14 @@ export async function priceItems(
   const items: IBookingItem[] = [...customItems];
   // Una línea libre no tiene duración en el catálogo: se asume un turno.
   let duration = customItems.length ? 60 : 0;
-  for (const { id, variant, quantity } of merged.values()) {
+  for (const { id, variant, choice, quantity } of merged.values()) {
     const s = byId.get(id)!;
     const line = priceLine(s, variant, quantity);
     items.push({
       service: s._id as any,
       name: s.name,
       variant,
+      choice,
       unitPrice: line.unitPrice,
       unitPriceMax: line.unitPriceMax,
       unit: s.unit,
