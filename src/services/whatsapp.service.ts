@@ -46,6 +46,7 @@ function itemOf(b: any) {
     items: (b.items ?? []).map((i: any) => ({
       name: i.name,
       variant: i.variant,
+      choice: i.choice ?? "",
       quantity: i.quantity,
       unit: i.unit,
       subtotal: i.subtotal,
@@ -59,6 +60,7 @@ function itemOf(b: any) {
     address: b.address,
     reference: b.reference ?? "",
     zone: b.zone ?? "",
+    location: b.location ?? null,
     notes: b.notes ?? "",
     status: b.status,
     operators: (b.operators ?? []).map((o: any) => ({
