@@ -1,5 +1,6 @@
 import express from "express";
 import * as operationController from "../controllers/adminOperation.controller";
+import * as staffIncidentController from "../controllers/staffIncident.controller";
 import { requireRoles } from "../middlewares/auth.middleware";
 
 /** Módulo "Operación" (fase 2): se monta dentro de /admin, ya autenticado. */
@@ -15,6 +16,11 @@ router.patch("/bookings/:id/confirmation", staff, operationController.setConfirm
 router.get("/novedades", staff, operationController.listNovedades);
 router.post("/bookings/:id/novedades", staff, operationController.addNovedad);
 router.delete("/bookings/:id/novedades/:nid", staff, operationController.deleteNovedad);
+
+// Novedades del personal (llegó tarde, pelea, problema con cliente…).
+router.get("/staff-incidents", staff, staffIncidentController.list);
+router.post("/staff-incidents", staff, staffIncidentController.create);
+router.delete("/staff-incidents/:id", staff, staffIncidentController.remove);
 
 router.get("/shifts", staff, operationController.monthShifts);
 router.put("/shifts", staff, operationController.saveShifts);
