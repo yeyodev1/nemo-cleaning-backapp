@@ -6,6 +6,8 @@ export interface ICustomer extends Document {
   phone: string;
   documentId: string;
   address: string;
+  /** Saldo a favor (centavos): excedentes de pagos que se descuentan en el próximo servicio. */
+  credit: number;
   /** Última referencia y ubicación GPS: se precargan en el próximo pedido. */
   reference: string;
   location: { lat: number | null; lng: number | null; accuracy: number; url: string } | null;
@@ -26,6 +28,7 @@ const customerSchema = new Schema<ICustomer>(
     phone: { type: String, default: "", trim: true },
     documentId: { type: String, default: "", trim: true },
     address: { type: String, default: "" },
+    credit: { type: Number, default: 0, min: 0 },
     reference: { type: String, default: "" },
     location: {
       type: new Schema(

@@ -8,7 +8,7 @@ import { RECEIVABLE_MATCH, SETTLED_ACCOUNT_RE } from "../utils/paymentAccount";
 import { assertBranchAccess, branchFilter } from "../utils/scope";
 import { changeStatus, createBooking, phoneRegex, updateAdminBooking } from "./booking.service";
 import { trackingUrl } from "./bookingEmail.service";
-import { addManualPayment } from "./payment.service";
+import { PROOF_RE, addManualPayment } from "./payment.service";
 import { listPaymentAccounts, methodOfAccount } from "./paymentAccount.service";
 
 /**
@@ -197,6 +197,18 @@ function confirmationFor(account: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Sin papel no hay pago: se revisa ANTES de crear o tocar la reserva, para no dejar un
+ * pedido creado con el cobro a medias (addManualPayment vuelve a validar al registrar).
+ */
+function assertPaidEvidence(account: string, raw: any) {
+  const method = methodOfAccount(account);
+  if (method === "cash" && raw?.cashConfirmed !== true)
+    throw new CustomError("Confirma que recibiste el efectivo", 400);
+  if ((method === "transfer" || method === "card") && !PROOF_RE.test(String(raw?.proofUrl ?? "")))
+    throw new CustomError("Sube el comprobante para registrar una transferencia", 400);
+}
+
 async function registerPaid(bookingId: string, account: string, raw: any, user: SessionUser) {
   const method = methodOfAccount(account);
   if (!method) {
@@ -217,6 +229,7 @@ async function registerPaid(bookingId: string, account: string, raw: any, user: 
       amount,
       method,
       account,
+      cashConfirmed: raw?.cashConfirmed === true,
       proofUrl: raw?.proofUrl,
       reference: raw?.reference,
       note: "Registrado desde Reservas por WhatsApp",
@@ -237,6 +250,7 @@ export async function createQuickOrder(body: any, user: SessionUser) {
     throw new CustomError("Escribe el WhatsApp del cliente", 400);
   const account = await parseAccount(body?.paymentAccount);
   const status = body?.status === "pending" ? "pending" : "confirmed";
+  if (body?.payment) assertPaidEvidence(account, body.payment);
   const { bookingId } = await createBooking(
     {
       ...body,
@@ -275,6 +289,7 @@ export async function handleOrder(id: string, body: any, user: SessionUser) {
     if (confirmation) patch.paymentConfirmation = confirmation;
   }
   if (body?.operators !== undefined) patch.operators = body.operators;
+  if (body?.payment) assertPaidEvidence(account, body.payment);
   if (Object.keys(patch).length) await updateAdminBooking(id, patch, user);
 
   if (body?.payment) await registerPaid(id, account, body.payment, user);

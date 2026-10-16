@@ -15,6 +15,9 @@ const METHOD_LABEL: Record<string, string> = { card: "tarjeta", cash: "efectivo"
 
 const METHODS = ["card", "cash", "transfer"];
 
+// Comprobantes: solo imágenes subidas a nuestro Cloudinary.
+export const PROOF_RE = /^https:\/\/res\.cloudinary\.com\/\S+$/;
+
 /**
  * Único lugar que calcula lo pagado de un pedido. Se recalcula desde los pagos
  * (no se suma sobre el valor guardado) para que dos operaciones simultáneas no
@@ -85,12 +88,28 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
   }
   const method = String(body?.method ?? "");
   if (!METHODS.includes(method)) throw new CustomError("Método de pago inválido", 400);
+  // Sin papel no hay pago: el efectivo se confirma como recibido; lo demás lleva comprobante.
+  const proofUrl = str(body?.proofUrl, 500);
+  if (method === "cash") {
+    if (body?.cashConfirmed !== true) throw new CustomError("Confirma que recibiste el efectivo", 400);
+  } else if (!PROOF_RE.test(proofUrl)) {
+    throw new CustomError(
+      method === "card" ? "Sube el voucher para registrar el pago con tarjeta" : "Sube el comprobante para registrar una transferencia",
+      400,
+    );
+  }
 
-  const booking = await Booking.findById(bookingId).select("code status branch customer");
+  const booking = await Booking.findById(bookingId).select("code status branch customer balance");
   if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   if (booking.status === "cancelled") {
     throw new CustomError("No se pueden registrar pagos en una reserva cancelada", 409);
+  }
+  // Excedente: si entra más de lo que se debe, se decide qué es (propina o saldo a favor).
+  const excess = Math.max(0, amount - Math.max(0, booking.balance ?? 0));
+  const excessAs = String(body?.excessAs ?? "");
+  if (excess > 0 && excessAs !== "tip" && excessAs !== "credit") {
+    throw new CustomError(`El pago supera el saldo por $${(excess / 100).toFixed(2)}: indica si es propina o saldo a favor del cliente`, 400);
   }
 
   const by = actor(user)!;
@@ -103,7 +122,7 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
     method,
     provider: "manual",
     status: "approved",
-    proofUrl: str(body?.proofUrl, 500),
+    proofUrl,
     reference: str(body?.reference, 120),
     account: str(body?.account, 80),
     note: str(body?.note, 500),
@@ -126,6 +145,15 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
       },
     },
   );
+  if (excess > 0) {
+    const what = excessAs === "tip" ? "propina" : "saldo a favor del cliente";
+    if (excessAs === "tip") await Booking.updateOne({ _id: booking._id }, { $inc: { tip: excess } });
+    else await Customer.updateOne({ _id: booking.customer }, { $inc: { credit: excess } });
+    await Booking.updateOne(
+      { _id: booking._id },
+      { $push: { history: { at: new Date(), by: by.name, action: "updated", note: `Excedente de $${(excess / 100).toFixed(2)} registrado como ${what}` } } },
+    );
+  }
   await confirmIfPending(booking._id, by.name);
   const totals = await recalculatePayments(booking._id);
   // Cobrado por completo: en la Base deja de figurar como pendiente.
@@ -175,6 +203,23 @@ export async function reviewPayment(paymentId: string, body: any, user: SessionU
     throw new CustomError("Este pago ya fue revisado", 409);
   }
 
+  // Aprobar exige el papel: efectivo confirmado como recibido o un comprobante (el del pago,
+  // uno subido al aprobar o el que el cliente adjuntó a la reserva). Rechazar no pide nada.
+  let proofUrl = "";
+  if (body.approved) {
+    if (payment.method === "cash") {
+      if (body?.cashConfirmed !== true) throw new CustomError("Confirma que recibiste el efectivo", 400);
+    } else {
+      const uploaded = str(body?.proofUrl, 500);
+      if (uploaded && !PROOF_RE.test(uploaded)) throw new CustomError("Comprobante inválido", 400);
+      proofUrl = uploaded;
+      if (!uploaded && !payment.proofUrl) {
+        const booking = await Booking.findById(payment.booking).select("transferProofUrl").lean();
+        if (!booking?.transferProofUrl) throw new CustomError("Para aprobar sube el comprobante", 400);
+      }
+    }
+  }
+
   const by = actor(user)!;
   const note = str(body?.note, 500);
   const claimed = await Payment.findOneAndUpdate(
@@ -185,6 +230,7 @@ export async function reviewPayment(paymentId: string, body: any, user: SessionU
         reviewedBy: by,
         reviewedAt: new Date(),
         ...(note ? { note } : {}),
+        ...(proofUrl ? { proofUrl } : {}),
         ...(body.approved ? { paidAt: new Date() } : {}),
       },
     },

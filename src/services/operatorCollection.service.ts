@@ -105,6 +105,7 @@ export async function receiveCollection(id: string, body: any, user: SessionUser
         amount,
         method: isCash ? "cash" : "transfer",
         cashConfirmed: isCash,
+        excessAs: body?.excessAs,
         proofUrl,
         account: isCash ? "Efectivo" : booking.paymentAccount?.toLowerCase().startsWith("transferencia") ? booking.paymentAccount : "",
         note: [isCash ? `Efectivo entregado por ${who}` : `Transferencia reportada por ${who}`, str(body?.note, 300)].filter(Boolean).join(" · "),

@@ -18,7 +18,7 @@ import { assertObjectId, cents, escapeRegex, paginated, str } from "../utils/htt
 import { RECEIVABLE_MATCH, isSettledWithoutPayment } from "../utils/paymentAccount";
 import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
 import { listPaymentAccounts, methodOfAccount } from "./paymentAccount.service";
-import { confirmIfPending, manualTransactionId, recalculatePayments, reviewPayment } from "./payment.service";
+import { PROOF_RE, confirmIfPending, manualTransactionId, recalculatePayments, reviewPayment } from "./payment.service";
 import { priceItems } from "./pricing.service";
 
 /**
@@ -73,8 +73,32 @@ async function resolveCustomer(raw: any, branchId: Types.ObjectId) {
   return Customer.create({ name, phone, branch: branchId });
 }
 
+/**
+ * Marcar "confirmado" aprueba el cobro, y sin papel no se aprueba: una transferencia
+ * necesita su comprobante y el efectivo, que se confirme recibido. Devuelve el comprobante.
+ * `existingProof` = el que ya tiene la transferencia en revisión (no hace falta otro).
+ */
+function confirmedEvidence(account: string, body: any, existingProof = "") {
+  const method = methodOfAccount(account);
+  const proofUrl = str(body?.proofUrl, 500);
+  if (method === "transfer") {
+    if (proofUrl && !PROOF_RE.test(proofUrl)) throw new CustomError("Comprobante inválido", 400);
+    if (!proofUrl && !existingProof)
+      throw new CustomError("Sube el comprobante de la transferencia para marcarla como confirmada", 400);
+  }
+  if (method === "cash" && body?.cashConfirmed !== true)
+    throw new CustomError("Confirma que recibiste el efectivo", 400);
+  return PROOF_RE.test(proofUrl) ? proofUrl : "";
+}
+
 /** Crea el Payment según la confirmación: confirmado = aprobado; pendiente de confirmación = por revisar. */
-async function registerPayment(booking: any, account: string, confirmation: PaymentConfirmation, user: SessionUser) {
+async function registerPayment(
+  booking: any,
+  account: string,
+  confirmation: PaymentConfirmation,
+  user: SessionUser,
+  proofUrl = "",
+) {
   const method = methodOfAccount(account);
   const amount = booking.balance ?? booking.total;
   if (!method || amount <= 0) return;
@@ -91,6 +115,7 @@ async function registerPayment(booking: any, account: string, confirmation: Paym
     account,
     provider: "manual",
     status: approved ? "approved" : "review",
+    ...(proofUrl ? { proofUrl } : {}),
     clientTransactionId: manualTransactionId(booking.code),
     registeredBy: by,
     ...(approved
@@ -138,6 +163,7 @@ export async function registerProduction(body: any, user: SessionUser) {
   const notes = str(body?.notes, 1000);
   const discount = body?.discount ? cents(body.discount, "El descuento") : 0;
   const method = methodOfAccount(account) ?? "cash";
+  const proofUrl = confirmation === "confirmed" ? confirmedEvidence(account, body) : "";
   // Fecha futura: no es un servicio hecho, queda en la agenda (confirmado) y solo se
   // registra el cobro si ya se pagó por adelantado.
   const future = date > todayStr();
@@ -162,7 +188,7 @@ export async function registerProduction(body: any, user: SessionUser) {
     await booking.save();
     await recalculatePayments(booking._id);
     const fresh = await Booking.findById(booking._id).lean();
-    await registerPayment(fresh, account, confirmation, user);
+    await registerPayment(fresh, account, confirmation, user, proofUrl);
     await recalculatePayments(booking._id);
     return Booking.findById(booking._id).populate(POPULATE).lean();
   }
@@ -205,7 +231,7 @@ export async function registerProduction(body: any, user: SessionUser) {
     history: [{ at: new Date(), by, action: "created", note: future ? "Agendado desde el registro de producción" : "Registrado en la producción del día" }],
   });
   await Customer.updateOne({ _id: customer._id }, { $inc: { totalOrders: 1 } });
-  if (!future || confirmation === "confirmed") await registerPayment(booking, account, confirmation, user);
+  if (!future || confirmation === "confirmed") await registerPayment(booking, account, confirmation, user, proofUrl);
   await recalculatePayments(booking._id);
   return Booking.findById(booking._id).populate(POPULATE).lean();
 }
@@ -220,16 +246,29 @@ export async function setConfirmation(id: string, body: any, user: SessionUser) 
   assertBranchAccess(user, booking.branch);
   const confirmation = parseConfirmation(body?.paymentConfirmation);
   const account = body?.paymentAccount !== undefined ? str(body.paymentAccount, 80) : booking.paymentAccount;
+  // Se valida antes de guardar: si falta el papel, la fila no cambia.
+  const inReview =
+    confirmation === "confirmed" && booking.balance > 0
+      ? await Payment.findOne({ booking: booking._id, status: "review", provider: "manual" })
+      : null;
+  const proofUrl =
+    confirmation === "confirmed" && booking.balance > 0
+      ? confirmedEvidence(account, body, inReview?.proofUrl || booking.transferProofUrl || "")
+      : "";
   booking.paymentConfirmation = confirmation;
   booking.paymentAccount = account;
   booking.history.push({ at: new Date(), by: actor(user)!.name, action: "updated", note: `Confirmación del pago: ${confirmation}` });
   await booking.save();
 
   if (confirmation === "confirmed" && booking.balance > 0) {
-    const inReview = await Payment.findOne({ booking: booking._id, status: "review", provider: "manual" });
-    if (inReview) await reviewPayment(String(inReview._id), { approved: true }, user);
+    if (inReview)
+      await reviewPayment(
+        String(inReview._id),
+        { approved: true, proofUrl: proofUrl || undefined, cashConfirmed: body?.cashConfirmed === true },
+        user,
+      );
     else {
-      await registerPayment(booking, account, "confirmed", user);
+      await registerPayment(booking, account, "confirmed", user, proofUrl);
       await confirmIfPending(booking._id, actor(user)!.name);
     }
   }
