@@ -7,5 +7,6 @@ router.use(requireRoles("operator"));
 router.get("/bookings", operatorController.myBookings);
 router.patch("/bookings/:id/status", operatorController.changeStatus);
 router.post("/bookings/:id/novedades", operatorController.addNovedad);
+router.get("/bookings/:id/recipients", operatorController.recipients);
 
 export default router;

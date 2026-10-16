@@ -10,6 +10,10 @@ export async function changeStatus(req: AuthRequest, res: Response) {
   res.json(await operatorJobService.changeJobStatus(String(req.params.id), req.body, req.user!));
 }
 
+export async function recipients(req: AuthRequest, res: Response) {
+  res.json(await operatorJobService.jobRecipients(String(req.params.id), req.user!));
+}
+
 export async function addNovedad(req: AuthRequest, res: Response) {
   res.status(201).json(await operatorJobService.addJobNovedad(String(req.params.id), req.body, req.user!));
 }

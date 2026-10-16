@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
 import { Booking, BookingStatus } from "../models/booking.model";
 import { HALF_DAY_UNTIL, Shift } from "../models/shift.model";
+import { User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
 import { isValidDate, todayStr } from "../utils/date";
 import { assertObjectId, str } from "../utils/http";
@@ -42,7 +43,15 @@ function toJob(b: any) {
     operators: (b.operators ?? []).map((o: any) => ({ _id: String(o._id), name: o.name, color: o.color })),
     startCheck: b.startCheck ? { at: b.startCheck.at, accuracy: b.startCheck.accuracy } : null,
     // Lo que él mismo reportó al terminar (no el total del servicio).
-    closeReport: b.closeReport ? { method: b.closeReport.method, cashReceived: b.closeReport.cashReceived, at: b.closeReport.at } : null,
+    closeReport: b.closeReport
+      ? {
+          method: b.closeReport.method,
+          cashReceived: b.closeReport.cashReceived,
+          at: b.closeReport.at,
+          handedTo: b.closeReport.handedTo?.name ?? "",
+          received: Boolean(b.closeReport.receivedAt),
+        }
+      : null,
     novedades: (b.novedades ?? []).map((n: any) => ({
       _id: String(n._id),
       text: n.text ?? "",
@@ -99,6 +108,25 @@ function parseStartLocation(raw: any) {
   };
 }
 
+/** Quién puede recibir el efectivo de un servicio: gerencia y los administradores de esa sucursal. */
+async function cashRecipients(branchId: unknown) {
+  const people = await User.find({
+    active: true,
+    email: { $gt: "" },
+    $or: [{ role: "admin" }, { role: "manager", branches: branchId }],
+  })
+    .select("name role")
+    .sort({ role: -1, name: 1 })
+    .lean();
+  return people.map((p) => ({ _id: String(p._id), name: p.name, role: p.role }));
+}
+
+/** GET /operator/bookings/:id/recipients — a quién puede entregarle el efectivo. */
+export async function jobRecipients(id: string, user: SessionUser) {
+  const booking = await loadMine(id, user);
+  return cashRecipients(booking.branch);
+}
+
 /** PATCH /operator/bookings/:id/status — iniciar exige la ubicación (se marca una sola vez). */
 export async function changeJobStatus(id: string, body: any, user: SessionUser) {
   const status = String(body?.status ?? "") as BookingStatus;
@@ -119,19 +147,23 @@ export async function changeJobStatus(id: string, body: any, user: SessionUser) 
       throw new CustomError("Indica si el cliente pagó en efectivo o por transferencia", 400);
     }
     let cashReceived = 0;
+    let handedTo: { id: string; name: string } | null = null;
     if (method === "cash") {
       cashReceived = Number(body?.payment?.cashReceived);
       if (!Number.isInteger(cashReceived) || cashReceived < 0 || cashReceived > 10_000_000) {
         throw new CustomError("Escribe cuánto efectivo recibiste", 400);
       }
+      const to = (await cashRecipients(booking.branch)).find((r) => r._id === String(body?.payment?.handedTo ?? ""));
+      if (!to) throw new CustomError("Elige a quién le entregas el efectivo", 400);
+      handedTo = { id: to._id, name: to.name };
     }
-    booking.closeReport = { method, cashReceived, at: new Date(), by } as any;
+    booking.closeReport = { method, cashReceived, at: new Date(), by, handedTo } as any;
   }
   const note = str(body?.note, 500);
   booking.status = status;
   const closeNote = booking.closeReport && status === "completed"
     ? booking.closeReport.method === "cash"
-      ? `Cobró en efectivo: $${(booking.closeReport.cashReceived / 100).toFixed(2)}`
+      ? `Cobró en efectivo: $${(booking.closeReport.cashReceived / 100).toFixed(2)} · lo entrega a ${booking.closeReport.handedTo?.name ?? "la oficina"}`
       : "El cliente pagó por transferencia"
     : "";
   booking.history.push({ at: new Date(), by: by.name, action: status, note: [closeNote, note].filter(Boolean).join(" · ") });

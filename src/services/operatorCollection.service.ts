@@ -33,6 +33,7 @@ function row(b: any) {
     cashReceived: r.cashReceived ?? 0,
     reportedAt: r.at,
     reportedBy: r.by?.name ?? "",
+    handedTo: r.handedTo ?? null,
     receivedAt: r.receivedAt ?? null,
     receivedBy: r.receivedBy?.name ?? "",
     receivedAmount: r.receivedAmount ?? 0,
@@ -43,7 +44,10 @@ function row(b: any) {
 /** GET /admin/collections?status=pending|done — pendientes, o recibidos en los últimos 30 días. */
 export async function listCollections(user: SessionUser, query: any) {
   const done = query?.status === "done";
+  // "Para mí": el efectivo que el operador dijo que me entrega a mí.
+  const mine = query?.mine === "1" ? { "closeReport.handedTo.id": user.id } : {};
   const filter: Record<string, any> = {
+    ...mine,
     ...branchFilter(user, query?.branch),
     "closeReport.method": { $in: ["cash", "transfer"] },
     "closeReport.receivedAt": done ? { $gte: new Date(Date.now() - 30 * 86_400_000) } : null,
@@ -78,6 +82,10 @@ export async function receiveCollection(id: string, body: any, user: SessionUser
   const report = booking.closeReport;
   if (!report) throw new CustomError("Este servicio no tiene cobro reportado por el operador", 409);
   if (report.receivedAt) throw new CustomError("Este cobro ya fue recibido", 409);
+  // El efectivo lo recibe la persona a quien el operador dijo que se lo entrega (o gerencia).
+  if (report.method === "cash" && report.handedTo?.id && user.role !== "admin" && report.handedTo.id !== user.id) {
+    throw new CustomError(`Este efectivo se lo entregan a ${report.handedTo.name}`, 403);
+  }
 
   const isCash = report.method === "cash";
   const fallback = isCash ? report.cashReceived : booking.balance;
@@ -96,6 +104,7 @@ export async function receiveCollection(id: string, body: any, user: SessionUser
       {
         amount,
         method: isCash ? "cash" : "transfer",
+        cashConfirmed: isCash,
         proofUrl,
         account: isCash ? "Efectivo" : booking.paymentAccount?.toLowerCase().startsWith("transferencia") ? booking.paymentAccount : "",
         note: [isCash ? `Efectivo entregado por ${who}` : `Transferencia reportada por ${who}`, str(body?.note, 300)].filter(Boolean).join(" · "),
