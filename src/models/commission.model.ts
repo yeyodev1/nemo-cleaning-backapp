@@ -21,6 +21,14 @@ export interface ICommissionRule extends Document {
   tiers: ICommissionTier[];
   supervisorPercent: number;
   exceptions: ICommissionException[];
+  /** Día en que arranca el período: 1 = mes calendario; 16 = del 16 del mes anterior al 15. */
+  periodStartDay: 1 | 16;
+  /** Sobre qué se mide la producción: lo cobrado (con descuento) o el precio de lista. */
+  productionBasis: "total" | "subtotal";
+  /** Supervisor: % del excedente de cada operador, o un monto fijo por período. */
+  supervisorMode: "percent" | "fixed";
+  /** Monto fijo del supervisor por período (centavos), si `supervisorMode` = fixed. */
+  supervisorFixed: number;
 }
 
 const tierSchema = new Schema<ICommissionTier>(
@@ -48,6 +56,10 @@ const commissionRuleSchema = new Schema<ICommissionRule>(
     dailyBase: { type: Number, default: 6000, min: 0 },
     tiers: { type: [tierSchema], default: () => DEFAULT_TIERS },
     supervisorPercent: { type: Number, default: 14, min: 0, max: 100 },
+    periodStartDay: { type: Number, enum: [1, 16], default: 1 },
+    productionBasis: { type: String, enum: ["total", "subtotal"], default: "total" },
+    supervisorMode: { type: String, enum: ["percent", "fixed"], default: "percent" },
+    supervisorFixed: { type: Number, default: 0, min: 0 },
     exceptions: {
       type: [
         new Schema<ICommissionException>(

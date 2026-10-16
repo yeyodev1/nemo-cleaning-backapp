@@ -25,8 +25,16 @@ import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
  * (`commissionEntry.service.ts`). "Usar este valor" copia el FEE a la celda manual.
  */
 
-/** Quincena del Excel: Q1 = días 1–15, Q2 = 16–fin de mes. */
-const fortnightOf = (date: string) => (Number(date.slice(8, 10)) <= 15 ? 1 : 2);
+/**
+ * Fechas del período de un mes. Día 1 = mes calendario. Día 16 = del 16 del mes anterior
+ * al 15 del mes (como el reporte quincenal del Excel: "agosto" = 16 jul–15 ago).
+ */
+function periodBounds(month: string, startDay: 1 | 16): { from: string; to: string } {
+  if (startDay === 1) return monthBounds(month);
+  const [y, m] = month.split("-").map(Number);
+  const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+  return { from: `${prev}-16`, to: `${month}-15` };
+}
 
 function monthParam(raw: unknown): string {
   if (raw === undefined || raw === null || raw === "") return currentMonth();
@@ -38,6 +46,10 @@ type Rule = {
   dailyBase: number;
   tiers: ICommissionTier[];
   supervisorPercent: number;
+  periodStartDay: 1 | 16;
+  productionBasis: "total" | "subtotal";
+  supervisorMode: "percent" | "fixed";
+  supervisorFixed: number;
   exceptions: { operator: string; tiers: ICommissionTier[]; note: string }[];
 };
 
@@ -51,6 +63,10 @@ export async function getRule(): Promise<Rule> {
     dailyBase: doc!.dailyBase ?? 6000,
     tiers: sortTiers(doc!.tiers?.length ? doc!.tiers : DEFAULT_TIERS),
     supervisorPercent: doc!.supervisorPercent ?? 14,
+    periodStartDay: doc!.periodStartDay === 16 ? 16 : 1,
+    productionBasis: doc!.productionBasis === "subtotal" ? "subtotal" : "total",
+    supervisorMode: doc!.supervisorMode === "fixed" ? "fixed" : "percent",
+    supervisorFixed: doc!.supervisorFixed ?? 0,
     exceptions: (doc!.exceptions ?? []).map((e) => ({
       operator: String(e.operator),
       tiers: sortTiers(e.tiers ?? []),
@@ -103,6 +119,23 @@ export async function updateRule(body: any) {
     set.supervisorPercent = n;
   }
   if (body?.tiers !== undefined) set.tiers = parseTiers(body.tiers, "Tramos");
+  if (body?.periodStartDay !== undefined) {
+    if (![1, 16].includes(Number(body.periodStartDay))) throw new CustomError("El período empieza el día 1 o el 16", 400);
+    set.periodStartDay = Number(body.periodStartDay);
+  }
+  if (body?.productionBasis !== undefined) {
+    if (!["total", "subtotal"].includes(String(body.productionBasis))) throw new CustomError("Base de producción inválida", 400);
+    set.productionBasis = String(body.productionBasis);
+  }
+  if (body?.supervisorMode !== undefined) {
+    if (!["percent", "fixed"].includes(String(body.supervisorMode))) throw new CustomError("Modo del supervisor inválido", 400);
+    set.supervisorMode = String(body.supervisorMode);
+  }
+  if (body?.supervisorFixed !== undefined) {
+    const n = Number(body.supervisorFixed);
+    if (!Number.isInteger(n) || n < 0) throw new CustomError("El monto fijo del supervisor debe estar en centavos", 400);
+    set.supervisorFixed = n;
+  }
   if (body?.exceptions !== undefined) {
     if (!Array.isArray(body.exceptions)) throw new CustomError("exceptions debe ser una lista", 400);
     const seen = new Set<string>();
@@ -145,18 +178,19 @@ interface Cell {
 }
 
 /** Producción por operador y día, total y por sucursal (centavos, sin redondear). */
-async function productionByDay(from: string, to: string) {
+async function productionByDay(from: string, to: string, basis: "total" | "subtotal") {
   const bookings = await Booking.find({
     date: { $gte: from, $lte: to },
     status: { $nin: INACTIVE_STATUSES },
     "operators.0": { $exists: true },
   })
-    .select("date total operators branch")
+    .select("date total subtotal operators branch")
     .lean();
   const acc = new Map<string, { date: string; operator: string; total: number; byBranch: Map<string, number> }>();
   for (const b of bookings) {
     // Dos lavadores en un servicio: el monto se reparte, igual que el reporte de producción.
-    const share = b.total / b.operators.length;
+    const amount = basis === "subtotal" ? (b.subtotal ?? b.total) : b.total;
+    const share = amount / b.operators.length;
     for (const op of b.operators) {
       const key = `${b.date}|${String(op)}`;
       const row = acc.get(key) ?? { date: b.date, operator: String(op), total: 0, byBranch: new Map() };
@@ -172,7 +206,8 @@ async function productionByDay(from: string, to: string) {
  * Celdas día × operador ya repartidas a las sucursales pedidas (`branches` vacío = todas).
  */
 async function computeCells(from: string, to: string, branches: string[]) {
-  const [rule, rows] = await Promise.all([getRule(), productionByDay(from, to)]);
+  const rule = await getRule();
+  const rows = await productionByDay(from, to, rule.productionBasis);
   const users = await User.find({ _id: { $in: [...new Set(rows.map((r) => r.operator))] } })
     .select("commissions")
     .lean();
@@ -191,7 +226,7 @@ async function computeCells(from: string, to: string, branches: string[]) {
     const earns = excess > 0 && !noCommission.has(r.operator);
     const percent = earns ? percentFor(excess, exceptions.get(r.operator) ?? rule.tiers) : 0;
     const fee = earns ? (excess * percent) / 100 : 0;
-    const supervisorFee = earns ? (excess * rule.supervisorPercent) / 100 : 0;
+    const supervisorFee = earns && rule.supervisorMode === "percent" ? (excess * rule.supervisorPercent) / 100 : 0;
     cells.push({
       date: r.date,
       operator: r.operator,
@@ -240,7 +275,10 @@ export async function commissionTotalsByMonth(
 export async function monthSheet(user: SessionUser, query: any) {
   const month = monthParam(query?.month);
   const branches = scopeBranches(user, query?.branch);
-  const { from, to } = monthBounds(month);
+  const periodRule = await getRule();
+  const { from, to } = periodBounds(month, periodRule.periodStartDay);
+  // Quincena dentro del período: la primera mitad es Q1 (en 16→15, Q1 = del 16 a fin de mes).
+  const fortnightOf = (date: string) => (periodRule.periodStartDay === 16 ? (date.slice(0, 7) < month ? 1 : 2) : Number(date.slice(8, 10)) <= 15 ? 1 : 2);
   const [{ rule, cells }, adjustments] = await Promise.all([
     computeCells(from, to, branches),
     CommissionAdjustment.find(adjustmentFilter(from, to, branches)).sort({ date: 1, createdAt: 1 }).lean(),
@@ -293,6 +331,21 @@ export async function monthSheet(user: SessionUser, query: any) {
     const s = supKey(op.supervisor, op.supervisorName);
     s[fortnightOf(date) === 1 ? "q1" : "q2"] += cell.supervisorFee;
     s.total += cell.supervisorFee;
+  }
+
+  // Supervisor con monto fijo: cada supervisor con operadores en el período cobra ese monto (mitad por quincena).
+  if (rule.supervisorMode === "fixed" && rule.supervisorFixed > 0) {
+    const seen = new Set<string>();
+    for (const op of operators) {
+      const key = op.supervisor ?? "none";
+      if (seen.has(key) || !cells.some((c) => c.operator === op._id)) continue;
+      seen.add(key);
+      const s = supKey(op.supervisor, op.supervisorName);
+      const half = Math.round(rule.supervisorFixed / 2);
+      s.q1 += half;
+      s.q2 += rule.supervisorFixed - half;
+      s.total += rule.supervisorFixed;
+    }
   }
 
   const adjViews = adjustments.map((a) => {
