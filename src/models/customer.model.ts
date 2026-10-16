@@ -6,6 +6,9 @@ export interface ICustomer extends Document {
   phone: string;
   documentId: string;
   address: string;
+  /** Última referencia y ubicación GPS: se precargan en el próximo pedido. */
+  reference: string;
+  location: { lat: number | null; lng: number | null; accuracy: number; url: string } | null;
   notes: string;
   branch: Types.ObjectId | null;
   totalOrders: number;
@@ -23,6 +26,19 @@ const customerSchema = new Schema<ICustomer>(
     phone: { type: String, default: "", trim: true },
     documentId: { type: String, default: "", trim: true },
     address: { type: String, default: "" },
+    reference: { type: String, default: "" },
+    location: {
+      type: new Schema(
+        {
+          lat: { type: Number, default: null },
+          lng: { type: Number, default: null },
+          accuracy: { type: Number, default: 0 },
+          url: { type: String, default: "" },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     notes: { type: String, default: "" },
     branch: { type: Schema.Types.ObjectId, ref: "Branch", default: null },
     totalOrders: { type: Number, default: 0 },

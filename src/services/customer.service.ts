@@ -20,6 +20,9 @@ export async function listCustomers(query: any) {
   if (query?.q) {
     const re = new RegExp(escapeRegex(str(query.q, 80)), "i");
     filter.$or = [{ name: re }, { email: re }, { phone: re }, { documentId: re }];
+    // El teléfono se guarda de cualquier forma ("099 123 4567"): también se busca por sus dígitos.
+    const digits = String(query.q).replace(/\D/g, "");
+    if (digits.length >= 4) filter.$or.push({ phone: new RegExp(digits.split("").join("\\D*")) });
   }
   if (query?.branch && isValidObjectId(String(query.branch))) filter.branch = String(query.branch);
   const [items, total] = await Promise.all([

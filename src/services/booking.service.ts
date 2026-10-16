@@ -275,7 +275,7 @@ async function publicView(b: any) {
 
 export async function publicViewById(id: unknown) {
   const b = await Booking.findById(id).select("+accessToken").populate(POPULATE).lean();
-  if (!b) throw new CustomError("Pedido no encontrado", 404);
+  if (!b) throw new CustomError("Reserva no encontrada", 404);
   return { booking: await publicView(b), accessToken: b.accessToken };
 }
 
@@ -287,7 +287,7 @@ async function findByAccess(codeRaw: unknown, tokenRaw: unknown) {
   const booking = await Booking.findOne({ code }).select("+accessToken");
   // Mismo 404 si no existe o el token no coincide: el enlace no sirve para adivinar códigos.
   if (!booking || !token || !safeEqual(booking.accessToken, token)) {
-    throw new CustomError("Pedido no encontrado", 404);
+    throw new CustomError("Reserva no encontrada", 404);
   }
   return booking;
 }
@@ -347,7 +347,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
   let status: BookingStatus = "pending";
   if (isAdmin && body?.status !== undefined) {
     if (!["pending", "confirmed"].includes(String(body.status))) {
-      throw new CustomError("Un pedido nuevo solo puede quedar pendiente o confirmado", 400);
+      throw new CustomError("Una reserva nueva solo puede quedar pendiente o confirmada", 400);
     }
     status = body.status;
   }
@@ -363,10 +363,12 @@ export async function createBooking(body: any, opts: CreateOptions) {
   });
   const address = str(body?.address, 300) || customer.address;
   if (!address && !isAdmin) throw new CustomError("Escribe la dirección del servicio", 400);
-  if (address && !customer.address) {
-    customer.address = address;
-    await customer.save();
-  }
+  // Lo último que se usó queda en el cliente: el próximo pedido se llena solo.
+  const reference = str(body?.reference, 300);
+  if (address) customer.address = address;
+  if (reference) customer.reference = reference;
+  if (location) customer.location = location;
+  if (customer.isModified()) await customer.save();
 
   let paymentConfirmation: string | undefined;
   if (isAdmin && body?.paymentConfirmation !== undefined) {
@@ -383,7 +385,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
   const createdNote =
     opts.source === "whatsapp"
       ? isAdmin
-        ? "Pedido rápido por WhatsApp desde el panel"
+        ? "Agenda rápida por WhatsApp desde el panel"
         : "Creado desde la web: el cliente termina por WhatsApp"
       : isAdmin
         ? "Creado desde el panel"
@@ -403,7 +405,7 @@ export async function createBooking(body: any, opts: CreateOptions) {
     startAt: toDateTime(date, time),
     durationMinutes: priced.durationMinutes,
     address,
-    reference: str(body?.reference, 300),
+    reference,
     notes: str(body?.notes, 1000),
     // Urbanización elegida en la web (lista de la sucursal o "Otra" escrita a mano).
     zone: str(body?.zone, 80),
@@ -495,9 +497,9 @@ export async function uploadTransferProof(
 ) {
   const booking = await findByAccess(code, token);
   if (["cancelled", "completed", "no_show"].includes(booking.status)) {
-    throw new CustomError("Este pedido ya no admite pagos", 409);
+    throw new CustomError("Esta reserva ya no admite pagos", 409);
   }
-  if (!(booking.balance > 0)) throw new CustomError("Este pedido no tiene saldo por pagar", 409);
+  if (!(booking.balance > 0)) throw new CustomError("Esta reserva no tiene saldo por pagar", 409);
   const { url } = await uploadFile(file, "comprobantes");
 
   // Si ya había una transferencia por revisar, se reemplaza su comprobante en vez de duplicarla.
@@ -546,7 +548,7 @@ export async function cancelPublicBooking(code: unknown, token: unknown, reasonR
   const view = await publicView(await populated(booking._id));
   if (!view.canCancel) {
     throw new CustomError(
-      "Este pedido ya no se puede cancelar en línea. Escríbenos por WhatsApp para ayudarte",
+      "Esta reserva ya no se puede cancelar en línea. Escríbenos por WhatsApp para ayudarte",
       409,
     );
   }
@@ -586,9 +588,9 @@ export async function restartPayphone(code: unknown, token: unknown) {
 // ---------------------------------------------------------------------------
 
 async function loadScoped(id: string, user: SessionUser) {
-  assertObjectId(id, "el pedido");
+  assertObjectId(id, "la reserva");
   const booking = await Booking.findById(id);
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   return booking;
 }
@@ -667,9 +669,9 @@ export async function getAgenda(user: SessionUser, query: any) {
 }
 
 export async function getAdminBooking(id: string, user: SessionUser) {
-  assertObjectId(id, "el pedido");
+  assertObjectId(id, "la reserva");
   const booking = await Booking.findById(id).select("+accessToken").populate(POPULATE).lean();
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   const payments = await Payment.find({ booking: booking._id }).sort({ createdAt: -1 }).lean();
   const { accessToken, ...rest } = booking;
@@ -759,7 +761,7 @@ export async function updateAdminBooking(id: string, body: any, user: SessionUse
   }
 
   booking.history.push(
-    historyEntry(by, rescheduled ? "rescheduled" : "updated", notes.join(". ") || "Pedido editado"),
+    historyEntry(by, rescheduled ? "rescheduled" : "updated", notes.join(". ") || "Reserva editada"),
   );
   await booking.save();
   await recalculatePayments(booking._id);
@@ -828,13 +830,13 @@ export async function listOperatorBookings(user: SessionUser, query: any) {
 }
 
 export async function operatorChangeStatus(id: string, body: any, user: SessionUser) {
-  assertObjectId(id, "el pedido");
+  assertObjectId(id, "la reserva");
   const status = String(body?.status ?? "") as BookingStatus;
   if (!OPERATOR_STATUSES.includes(status)) {
     throw new CustomError("Estado inválido: usa on_the_way, in_progress o completed", 400);
   }
   const booking = await Booking.findById(id);
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   if (!booking.operators.map(String).includes(user.id)) {
     throw new CustomError("Este servicio no está asignado a ti", 403);
   }

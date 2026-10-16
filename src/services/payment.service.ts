@@ -29,7 +29,7 @@ export async function recalculatePayments(bookingId: unknown) {
       { $group: { _id: "$status", total: { $sum: "$amount" }, count: { $sum: 1 } } },
     ]),
   ]);
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
 
   const total = booking.total ?? 0;
   const by = (s: string) => rows.find((r) => r._id === s);
@@ -78,7 +78,7 @@ export function manualTransactionId(code: string) {
 
 /** POST /admin/bookings/:id/payments — efectivo, transferencia o tarjeta (datáfono). */
 export async function addManualPayment(bookingId: string, body: any, user: SessionUser) {
-  assertObjectId(bookingId, "el pedido");
+  assertObjectId(bookingId, "la reserva");
   const amount = Number(body?.amount);
   if (!Number.isInteger(amount) || amount <= 0) {
     throw new CustomError("El monto debe ser un entero en centavos mayor a 0", 400);
@@ -87,10 +87,10 @@ export async function addManualPayment(bookingId: string, body: any, user: Sessi
   if (!METHODS.includes(method)) throw new CustomError("Método de pago inválido", 400);
 
   const booking = await Booking.findById(bookingId).select("code status branch customer");
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   if (booking.status === "cancelled") {
-    throw new CustomError("No se pueden registrar pagos en un pedido cancelado", 409);
+    throw new CustomError("No se pueden registrar pagos en una reserva cancelada", 409);
   }
 
   const by = actor(user)!;

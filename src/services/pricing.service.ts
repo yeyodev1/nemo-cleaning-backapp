@@ -70,9 +70,9 @@ export async function priceItems(
   { allowInactive = false, allowCustom = false } = {},
 ): Promise<PricedOrder> {
   if (!Array.isArray(rawInput) || rawInput.length === 0) {
-    throw new CustomError("Agrega al menos un servicio al pedido", 400);
+    throw new CustomError("Agrega al menos un servicio a tu reserva", 400);
   }
-  if (rawInput.length > 50) throw new CustomError("Demasiados servicios en un pedido", 400);
+  if (rawInput.length > 50) throw new CustomError("Demasiados servicios en una reserva", 400);
 
   // Líneas libres (solo panel): { name, unitPrice, quantity } sin servicio del catálogo.
   const customItems: IBookingItem[] = [];
@@ -108,7 +108,7 @@ export async function priceItems(
 
   const ids = rawItems.map((i: any) => String(i?.service ?? ""));
   if (ids.some((id) => !isValidObjectId(id)))
-    throw new CustomError("Servicio inválido en el pedido", 400);
+    throw new CustomError("Servicio inválido en la reserva", 400);
 
   const services = await Service.find({ _id: { $in: ids } }).lean();
   const byId = new Map(services.map((s) => [String(s._id), s]));

@@ -31,7 +31,7 @@ function codeEmail(code: string, audience: LoginAudience): string {
   const intro =
     audience === "staff"
       ? "Usa este código para ingresar al panel de Nemo Cleaning."
-      : "Usa este código para ingresar a tu cuenta de Nemo Cleaning y ver tus pedidos.";
+      : "Usa este código para ingresar a tu cuenta de Nemo Cleaning y ver tus servicios.";
   return layout(
     "Tu código de acceso",
     `<p style="margin:0 0 8px">${escapeHtml(intro)}</p>

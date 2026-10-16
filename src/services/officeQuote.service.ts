@@ -216,7 +216,7 @@ export async function updateOfficeQuote(id: string, body: any, user: SessionUser
  */
 export async function convertOfficeQuote(id: string, body: any, user: SessionUser) {
   const quote = await loadScoped(id, user);
-  if (quote.booking) throw new CustomError("Esta cotización ya tiene un pedido", 409);
+  if (quote.booking) throw new CustomError("Esta cotización ya tiene una reserva", 409);
   if (quote.estimate === null || quote.estimate === undefined) {
     throw new CustomError("Define primero el valor acordado (plan mensual: tarifa especial)", 409);
   }
@@ -230,7 +230,7 @@ export async function convertOfficeQuote(id: string, body: any, user: SessionUse
       .sort({ name: 1 })
       .select("_id")
       .lean();
-    if (!candidates.length) throw new CustomError("Elige la sucursal del pedido", 400);
+    if (!candidates.length) throw new CustomError("Elige la sucursal de la reserva", 400);
     branch = String(candidates[0]._id);
   }
   const plan = ` · ${PLAN_LABEL[quote.plan] ?? quote.plan}`;

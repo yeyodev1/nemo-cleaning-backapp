@@ -79,7 +79,7 @@ function itemOf(b: any) {
 
 async function loadItem(id: unknown) {
   const b = await Booking.findById(id).select("+accessToken").populate(POPULATE).lean();
-  if (!b) throw new CustomError("Pedido no encontrado", 404);
+  if (!b) throw new CustomError("Reserva no encontrada", 404);
   return itemOf(b);
 }
 
@@ -127,9 +127,9 @@ export function parseBookingCode(raw: unknown): string | null {
 export async function lookupByCode(user: SessionUser, raw: unknown) {
   const code = parseBookingCode(raw);
   if (!code)
-    throw new CustomError("Escribe el código del pedido (por ejemplo NEMO-000123 o 123)", 400);
+    throw new CustomError("Escribe el código de la reserva (por ejemplo NEMO-000123 o 123)", 400);
   const b = await Booking.findOne({ code }).select("+accessToken").populate(POPULATE).lean();
-  if (!b) throw new CustomError(`No encontramos el pedido ${code}`, 404);
+  if (!b) throw new CustomError(`No encontramos la reserva ${code}`, 404);
   assertBranchAccess(user, b.branch);
   return itemOf(b);
 }
@@ -210,7 +210,7 @@ async function registerPaid(bookingId: string, account: string, raw: any, user: 
     raw?.amount !== undefined && raw?.amount !== "" && raw?.amount !== null
       ? cents(raw.amount, "El monto", { allowZero: false })
       : (b?.balance ?? 0);
-  if (amount <= 0) throw new CustomError("Este pedido no tiene saldo por cobrar", 409);
+  if (amount <= 0) throw new CustomError("Esta reserva no tiene saldo por cobrar", 409);
   await addManualPayment(
     bookingId,
     {
@@ -219,7 +219,7 @@ async function registerPaid(bookingId: string, account: string, raw: any, user: 
       account,
       proofUrl: raw?.proofUrl,
       reference: raw?.reference,
-      note: "Registrado desde Pedidos por WhatsApp",
+      note: "Registrado desde Reservas por WhatsApp",
     },
     user,
   );
@@ -258,12 +258,12 @@ export async function createQuickOrder(body: any, user: SessionUser) {
  * Orden: forma de pago y operadores → cobro (un pago aprobado ya confirma) → confirmar.
  */
 export async function handleOrder(id: string, body: any, user: SessionUser) {
-  assertObjectId(id, "el pedido");
+  assertObjectId(id, "la reserva");
   const current = await Booking.findById(id).select("branch status paymentAccount").lean();
-  if (!current) throw new CustomError("Pedido no encontrado", 404);
+  if (!current) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, current.branch);
   if (["cancelled", "no_show"].includes(current.status))
-    throw new CustomError("Este pedido está cancelado", 409);
+    throw new CustomError("Esta reserva está cancelada", 409);
 
   const patch: Record<string, unknown> = {};
   let account = current.paymentAccount ?? "";
@@ -284,7 +284,7 @@ export async function handleOrder(id: string, body: any, user: SessionUser) {
     if (fresh?.status === "pending")
       await changeStatus(
         id,
-        { status: "confirmed", note: "Confirmado desde Pedidos por WhatsApp" },
+        { status: "confirmed", note: "Confirmado desde Reservas por WhatsApp" },
         user,
       );
   }

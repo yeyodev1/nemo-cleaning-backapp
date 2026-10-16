@@ -10,8 +10,8 @@ import { actor, assertBranchAccess, branchFilter } from "../utils/scope";
 /** Hoja "NOVEDADES DE LA SEMANA": incidencias por servicio (cliente, operador, novedad). */
 
 async function loadScoped(id: string, user: SessionUser) {
-  const booking = await Booking.findById(assertObjectId(id, "el pedido"));
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  const booking = await Booking.findById(assertObjectId(id, "la reserva"));
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   return booking;
 }

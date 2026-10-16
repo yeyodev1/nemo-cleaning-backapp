@@ -143,11 +143,11 @@ export async function registerProduction(body: any, user: SessionUser) {
   const future = date > todayStr();
 
   if (body?.bookingId) {
-    if (future) throw new CustomError("Un pedido agendado se cierra el día que se hace", 400);
-    const booking = await Booking.findById(assertObjectId(String(body.bookingId), "el pedido"));
-    if (!booking) throw new CustomError("Pedido no encontrado", 404);
+    if (future) throw new CustomError("Un servicio agendado se cierra el día que se hace", 400);
+    const booking = await Booking.findById(assertObjectId(String(body.bookingId), "la reserva"));
+    if (!booking) throw new CustomError("Reserva no encontrada", 404);
     assertBranchAccess(user, booking.branch);
-    if (INACTIVE_STATUSES.includes(booking.status)) throw new CustomError("Ese pedido está cancelado", 409);
+    if (INACTIVE_STATUSES.includes(booking.status)) throw new CustomError("Esa reserva está cancelada", 409);
     if (Array.isArray(body?.items) && body.items.length) {
       const priced = await priceItems(body.items, { allowInactive: true, allowCustom: true });
       booking.items = priced.items;
@@ -215,8 +215,8 @@ export async function registerProduction(body: any, user: SessionUser) {
  * Pasar a "confirmado" aprueba la transferencia en revisión o registra el cobro del saldo.
  */
 export async function setConfirmation(id: string, body: any, user: SessionUser) {
-  const booking = await Booking.findById(assertObjectId(id, "el pedido"));
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  const booking = await Booking.findById(assertObjectId(id, "la reserva"));
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   assertBranchAccess(user, booking.branch);
   const confirmation = parseConfirmation(body?.paymentConfirmation);
   const account = body?.paymentAccount !== undefined ? str(body.paymentAccount, 80) : booking.paymentAccount;

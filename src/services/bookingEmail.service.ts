@@ -24,7 +24,7 @@ function sourceLabel(b: { source?: string; history?: { by?: string }[] }): strin
   if (b.source === "whatsapp")
     return b.history?.[0]?.by === "Cliente (web)"
       ? "Web · termina por WhatsApp"
-      : "WhatsApp (pedido rápido del panel)";
+      : "WhatsApp (agenda rápida del panel)";
   if (b.source === "web") return "Web";
   return "Panel";
 }
@@ -99,7 +99,7 @@ function summary(ctx: Ctx, { prices = true } = {}): string {
        <tr><td style="padding:8px 0;font-weight:bold;border-top:1px solid #E1E7EE">Total</td><td align="right" style="padding:8px 0;font-weight:bold;border-top:1px solid #E1E7EE">${formatMoney(b.total)}</td></tr>`
     : "";
   return `
-  <p style="margin:0 0 8px"><strong>Pedido:</strong> ${escapeHtml(b.code)}<br>
+  <p style="margin:0 0 8px"><strong>Reserva:</strong> ${escapeHtml(b.code)}<br>
   <strong>Fecha:</strong> ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)}<br>
   <strong>Sucursal:</strong> ${escapeHtml(ctx.branch?.name ?? "")}<br>
   ${b.address ? `<strong>Dirección:</strong> ${escapeHtml(b.address)}${b.reference ? ` (${escapeHtml(b.reference)})` : ""}<br>` : ""}
@@ -149,26 +149,26 @@ export function sendBookingCreated(bookingId: string) {
     }
     const name = escapeHtml(ctx.customer?.name?.split(" ")[0] ?? "");
     const html = layout(
-      "¡Recibimos tu pedido!",
-      `<p>Hola ${name}, gracias por confiar en Nemo Cleaning. Este es el resumen de tu pedido:</p>
+      "¡Recibimos tu reserva!",
+      `<p>Hola ${name}, gracias por confiar en Nemo Cleaning. Este es el resumen de tu reserva:</p>
        ${summary(ctx)}${payText}
-       ${button("Ver mi pedido", ctx.link)}
-       <p style="color:${BRAND.muted};font-size:13px">Te avisaremos cuando confirmemos tu pedido.</p>`,
+       ${button("Ver mi reserva", ctx.link)}
+       <p style="color:${BRAND.muted};font-size:13px">Te avisaremos cuando confirmemos tu servicio.</p>`,
     );
-    await sendEmail(ctx.customer?.email ?? "", `Pedido ${b.code} recibido — Nemo Cleaning`, html);
+    await sendEmail(ctx.customer?.email ?? "", `Reserva ${b.code} recibida — Nemo Cleaning`, html);
 
     const isWhatsapp = b.source === "whatsapp";
     const admin = layout(
-      isWhatsapp ? `Nuevo pedido por WhatsApp ${b.code}` : `Nuevo pedido ${b.code}`,
+      isWhatsapp ? `Nueva reserva por WhatsApp ${b.code}` : `Nueva reserva ${b.code}`,
       `<p><strong>Cliente:</strong> ${escapeHtml(ctx.customer?.name)} · ${escapeHtml(ctx.customer?.phone)} · ${escapeHtml(ctx.customer?.email)}</p>
        ${summary(ctx)}
-       ${isWhatsapp ? `<p style="padding:10px 12px;border-radius:10px;background:#E7F8EE;color:#14663A"><strong>Pedido por WhatsApp:</strong> el cliente coordina el pago en el chat. Confírmalo desde el panel → Pedidos por WhatsApp.</p>` : ""}
+       ${isWhatsapp ? `<p style="padding:10px 12px;border-radius:10px;background:#E7F8EE;color:#14663A"><strong>Reserva por WhatsApp:</strong> el cliente coordina el pago en el chat. Confírmalo desde el panel → Reservas por WhatsApp.</p>` : ""}
        <p><strong>Origen:</strong> ${sourceLabel(b)}${b.notes ? `<br><strong>Notas:</strong> ${escapeHtml(b.notes)}` : ""}</p>
        ${b.transferProofUrl ? button("Ver comprobante", b.transferProofUrl) : ""}`,
     );
     await sendEmail(
       await notifyRecipients(),
-      `${isWhatsapp ? "Nuevo pedido por WhatsApp" : "Nuevo pedido"} ${b.code} · ${ctx.branch?.name ?? ""}`,
+      `${isWhatsapp ? "Nueva reserva por WhatsApp" : "Nueva reserva"} ${b.code} · ${ctx.branch?.name ?? ""}`,
       admin,
     );
   });
@@ -179,12 +179,12 @@ export function sendBookingConfirmed(bookingId: string) {
     const ctx = await loadContext(bookingId);
     if (!ctx) return;
     const html = layout(
-      "Tu pedido está confirmado",
-      `<p>Hola ${escapeHtml(ctx.customer?.name?.split(" ")[0] ?? "")}, confirmamos tu servicio:</p>${summary(ctx)}${button("Ver mi pedido", ctx.link)}`,
+      "Tu servicio está confirmado",
+      `<p>Hola ${escapeHtml(ctx.customer?.name?.split(" ")[0] ?? "")}, confirmamos tu servicio:</p>${summary(ctx)}${button("Ver mi reserva", ctx.link)}`,
     );
     await sendEmail(
       ctx.customer?.email ?? "",
-      `Pedido ${ctx.booking.code} confirmado — Nemo Cleaning`,
+      `Servicio ${ctx.booking.code} confirmado — Nemo Cleaning`,
       html,
     );
   });
@@ -197,9 +197,9 @@ export function sendPaymentApproved(bookingId: string, amount: number) {
     const b = ctx.booking;
     const html = layout(
       "Pago recibido",
-      `<p>Registramos tu pago de <strong>${formatMoney(amount)}</strong> para el pedido ${escapeHtml(b.code)}.</p>
-       <p>${b.balance > 0 ? `Saldo pendiente: <strong>${formatMoney(b.balance)}</strong>.` : "Tu pedido está pagado por completo."}</p>
-       ${summary(ctx)}${button("Ver mi pedido", ctx.link)}`,
+      `<p>Registramos tu pago de <strong>${formatMoney(amount)}</strong> para la reserva ${escapeHtml(b.code)}.</p>
+       <p>${b.balance > 0 ? `Saldo pendiente: <strong>${formatMoney(b.balance)}</strong>.` : "Tu servicio está pagado por completo."}</p>
+       ${summary(ctx)}${button("Ver mi reserva", ctx.link)}`,
     );
     await sendEmail(ctx.customer?.email ?? "", `Pago recibido · ${b.code} — Nemo Cleaning`, html);
   });
@@ -211,7 +211,7 @@ export function sendTransferRejected(bookingId: string, note: string) {
     if (!ctx) return;
     const html = layout(
       "No pudimos validar tu transferencia",
-      `<p>Revisamos el comprobante del pedido ${escapeHtml(ctx.booking.code)} y no pudimos validarlo.</p>
+      `<p>Revisamos el comprobante de la reserva ${escapeHtml(ctx.booking.code)} y no pudimos validarlo.</p>
        ${note ? `<p><strong>Motivo:</strong> ${escapeHtml(note)}</p>` : ""}
        <p>Puedes subir un nuevo comprobante desde el enlace de seguimiento o escribirnos por WhatsApp.</p>
        ${await bankBlock()}${button("Subir comprobante", ctx.link)}`,
@@ -256,14 +256,14 @@ export function sendRescheduled(bookingId: string, previous: { date: string; tim
     const b = ctx.booking;
     const before = `${humanDate(previous.date)}, ${previous.time}`;
     const html = layout(
-      "Tu pedido fue reprogramado",
-      `<p>El pedido ${escapeHtml(b.code)} cambió de fecha.</p>
+      "Tu servicio fue reprogramado",
+      `<p>El servicio ${escapeHtml(b.code)} cambió de fecha.</p>
        <p><span style="color:${BRAND.muted};text-decoration:line-through">${escapeHtml(before)}</span><br>
-       <strong>Nueva fecha: ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)}</strong></p>${summary(ctx)}${button("Ver mi pedido", ctx.link)}`,
+       <strong>Nueva fecha: ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)}</strong></p>${summary(ctx)}${button("Ver mi reserva", ctx.link)}`,
     );
     await sendEmail(
       ctx.customer?.email ?? "",
-      `Pedido ${b.code} reprogramado — Nemo Cleaning`,
+      `Servicio ${b.code} reprogramado — Nemo Cleaning`,
       html,
     );
     const opHtml = layout(
@@ -284,13 +284,13 @@ export function sendCancelled(bookingId: string, reason: string) {
     if (!ctx) return;
     const b = ctx.booking;
     const html = layout(
-      "Tu pedido fue cancelado",
-      `<p>El pedido ${escapeHtml(b.code)} del ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)} fue cancelado.</p>
+      "Tu servicio fue cancelado",
+      `<p>El servicio ${escapeHtml(b.code)} del ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)} fue cancelado.</p>
        ${reason ? `<p><strong>Motivo:</strong> ${escapeHtml(reason)}</p>` : ""}
        ${b.amountPaid > 0 ? "<p>Nos comunicaremos contigo para coordinar la devolución de lo pagado.</p>" : ""}
        <p>Si fue un error, escríbenos y lo reagendamos.</p>`,
     );
-    await sendEmail(ctx.customer?.email ?? "", `Pedido ${b.code} cancelado — Nemo Cleaning`, html);
+    await sendEmail(ctx.customer?.email ?? "", `Servicio ${b.code} cancelado — Nemo Cleaning`, html);
     const opHtml = layout(
       "Servicio cancelado",
       `<p>El servicio ${escapeHtml(b.code)} del ${escapeHtml(humanDate(b.date))}, ${escapeHtml(b.time)} fue cancelado.</p>`,
@@ -300,7 +300,7 @@ export function sendCancelled(bookingId: string, reason: string) {
       `Servicio ${b.code} cancelado`,
       opHtml,
     );
-    await sendEmail(await notifyRecipients(), `Pedido ${b.code} cancelado`, opHtml);
+    await sendEmail(await notifyRecipients(), `Servicio ${b.code} cancelado`, opHtml);
   });
 }
 

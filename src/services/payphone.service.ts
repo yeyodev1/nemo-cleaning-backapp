@@ -38,12 +38,12 @@ export async function createPayphoneInit(bookingId: unknown) {
   const booking = await Booking.findById(bookingId).select(
     "code balance total branch customer status",
   );
-  if (!booking) throw new CustomError("Pedido no encontrado", 404);
+  if (!booking) throw new CustomError("Reserva no encontrada", 404);
   if (["cancelled", "completed", "no_show"].includes(booking.status)) {
-    throw new CustomError("Este pedido ya no admite pagos", 409);
+    throw new CustomError("Esta reserva ya no admite pagos", 409);
   }
   const amount = booking.balance;
-  if (!(amount > 0)) throw new CustomError("Este pedido no tiene saldo por pagar", 409);
+  if (!(amount > 0)) throw new CustomError("Esta reserva no tiene saldo por pagar", 409);
 
   const customer = await Customer.findById(booking.customer).lean();
   const clientTransactionId = newClientTransactionId(booking.code);
@@ -68,7 +68,7 @@ export async function createPayphoneInit(bookingId: unknown) {
     amountWithTax: 0,
     tax: 0,
     currency: "USD",
-    reference: `Pedido ${booking.code}`.slice(0, 100),
+    reference: `Reserva ${booking.code}`.slice(0, 100),
     email: customer?.email ?? "",
     phoneNumber: toInternationalPhone(customer?.phone ?? ""),
     documentId: customer?.documentId ?? "",
@@ -157,7 +157,7 @@ export async function confirmPayphone(body: any) {
     return publicResult(
       "rejected",
       payment.booking,
-      "El monto cobrado no coincide con el pedido. Contáctanos",
+      "El monto cobrado no coincide con la reserva. Contáctanos",
     );
   }
 
