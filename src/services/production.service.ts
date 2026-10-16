@@ -138,8 +138,12 @@ export async function registerProduction(body: any, user: SessionUser) {
   const notes = str(body?.notes, 1000);
   const discount = body?.discount ? cents(body.discount, "El descuento") : 0;
   const method = methodOfAccount(account) ?? "cash";
+  // Fecha futura: no es un servicio hecho, queda en la agenda (confirmado) y solo se
+  // registra el cobro si ya se pagó por adelantado.
+  const future = date > todayStr();
 
   if (body?.bookingId) {
+    if (future) throw new CustomError("Un pedido agendado se cierra el día que se hace", 400);
     const booking = await Booking.findById(assertObjectId(String(body.bookingId), "el pedido"));
     if (!booking) throw new CustomError("Pedido no encontrado", 404);
     assertBranchAccess(user, booking.branch);
@@ -188,7 +192,7 @@ export async function registerProduction(body: any, user: SessionUser) {
     durationMinutes: priced.durationMinutes,
     address: str(body?.address, 300) || customer.address || zone,
     notes,
-    status: "completed",
+    status: future ? "confirmed" : "completed",
     operators,
     paymentMethod: method,
     paymentStatus: "pending",
@@ -198,10 +202,10 @@ export async function registerProduction(body: any, user: SessionUser) {
     tip,
     paymentAccount: account,
     paymentConfirmation: confirmation,
-    history: [{ at: new Date(), by, action: "created", note: "Registrado en la producción del día" }],
+    history: [{ at: new Date(), by, action: "created", note: future ? "Agendado desde el registro de producción" : "Registrado en la producción del día" }],
   });
   await Customer.updateOne({ _id: customer._id }, { $inc: { totalOrders: 1 } });
-  await registerPayment(booking, account, confirmation, user);
+  if (!future || confirmation === "confirmed") await registerPayment(booking, account, confirmation, user);
   await recalculatePayments(booking._id);
   return Booking.findById(booking._id).populate(POPULATE).lean();
 }
