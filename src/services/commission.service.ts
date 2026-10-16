@@ -8,6 +8,8 @@ import {
   ICommissionTier,
 } from "../models/commission.model";
 import { User } from "../models/user.model";
+import { Branch } from "../models/branch.model";
+import { Goal } from "../models/goal.model";
 import { manualTotalsByMonth } from "./commissionEntry.service";
 import { SessionUser } from "../types/AuthRequest";
 import { currentMonth, daysBetween, isValidDate, isValidMonth, monthBounds } from "../utils/date";
@@ -119,6 +121,14 @@ export async function updateRule(body: any) {
     set.supervisorPercent = n;
   }
   if (body?.tiers !== undefined) set.tiers = parseTiers(body.tiers, "Tramos");
+  if (body?.branchPercents !== undefined) {
+    if (!Array.isArray(body.branchPercents)) throw new CustomError("branchPercents debe ser una lista", 400);
+    set.branchPercents = body.branchPercents.map((b: any) => {
+      const percent = Number(b?.percent);
+      if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new CustomError("El % de cada sucursal debe estar entre 0 y 100", 400);
+      return { branch: new Types.ObjectId(assertObjectId(String(b?.branch ?? ""), "la sucursal")), percent };
+    });
+  }
   if (body?.periodStartDay !== undefined) {
     if (![1, 16].includes(Number(body.periodStartDay))) throw new CustomError("El período empieza el día 1 o el 16", 400);
     set.periodStartDay = Number(body.periodStartDay);
@@ -150,6 +160,106 @@ export async function updateRule(body: any) {
   return describeRule(await getRule());
 }
 
+/**
+ * % por sucursal para la comisión por meta. Sin configurar: Samborondón 30 %, el resto 20 %
+ * (Vía a la Costa / Ceibos), como lo definió gerencia.
+ */
+export async function branchPercents(): Promise<{ branch: string; name: string; percent: number }[]> {
+  const [doc, branches] = await Promise.all([
+    CommissionRule.findOne({ key: "main" }).select("branchPercents").lean(),
+    Branch.find().select("name").sort({ name: 1 }).lean(),
+  ]);
+  const saved = new Map((doc?.branchPercents ?? []).map((b) => [String(b.branch), b.percent]));
+  return branches.map((b) => ({
+    branch: String(b._id),
+    name: b.name,
+    percent: saved.get(String(b._id)) ?? (/samborond/i.test(b.name) ? 30 : 20),
+  }));
+}
+
+/**
+ * GET /admin/commissions/goal-sheet?month=&branch= — comisión por meta mensual:
+ *   EXCEDENTE = producción del mes del operador − su meta del mes (Metas mensuales)
+ *   COMISIÓN = excedente × % de la sucursal (si trabajó en varias, el excedente se reparte
+ *   según lo que produjo en cada una).
+ */
+export async function goalSheet(user: SessionUser, query: any) {
+  const month = monthParam(query?.month);
+  const branches = scopeBranches(user, query?.branch);
+  const rule = await getRule();
+  const { from, to } = monthBounds(month);
+  const [rows, percents, goals] = await Promise.all([
+    productionByDay(from, to, rule.productionBasis),
+    branchPercents(),
+    Goal.find({ month }).lean(),
+  ]);
+  const pct = new Map(percents.map((p) => [p.branch, p]));
+  const goalOf = new Map(goals.map((g) => [String(g.operator), g.amount]));
+
+  const acc = new Map<string, { total: number; byBranch: Map<string, number> }>();
+  for (const r of rows) {
+    const a = acc.get(r.operator) ?? { total: 0, byBranch: new Map() };
+    a.total += r.total;
+    for (const [b, v] of r.byBranch) a.byBranch.set(b, (a.byBranch.get(b) ?? 0) + v);
+    acc.set(r.operator, a);
+  }
+  // Metas puestas para operadores sin producción aún también se muestran.
+  for (const g of goals) if (!acc.has(String(g.operator))) acc.set(String(g.operator), { total: 0, byBranch: new Map() });
+
+  const people = await User.find({ _id: { $in: [...acc.keys()] } }).select("name color role branches").lean();
+  const personMap = new Map(people.map((p) => [String(p._id), p]));
+
+  const items = [...acc.entries()]
+    .map(([operator, a]) => {
+      const p = personMap.get(operator);
+      const production = Math.round(a.total);
+      const goal = goalOf.get(operator) ?? null;
+      const excess = goal === null ? 0 : Math.max(0, production - goal);
+      const parts = [...a.byBranch.entries()]
+        .filter(([b]) => !branches.length || branches.includes(b))
+        .map(([b, v]) => {
+          const share = a.total > 0 ? v / a.total : 0;
+          const percent = pct.get(b)?.percent ?? 20;
+          const branchExcess = excess * share;
+          return { branch: b, name: pct.get(b)?.name ?? "—", production: Math.round(v), excess: Math.round(branchExcess), percent, commission: Math.round((branchExcess * percent) / 100) };
+        });
+      // Sin producción (solo meta) en el alcance: se muestra con su sucursal principal.
+      if (!parts.length && (!branches.length || (p?.branches ?? []).some((b) => branches.includes(String(b))))) {
+        const b = String(p?.branches?.[0] ?? "");
+        parts.push({ branch: b, name: pct.get(b)?.name ?? "—", production: 0, excess: 0, percent: pct.get(b)?.percent ?? 20, commission: 0 });
+      }
+      return {
+        operator,
+        name: p?.name ?? "—",
+        color: p?.color ?? "",
+        goal,
+        production,
+        excess,
+        progress: goal ? Math.round((production / goal) * 100) : null,
+        branches: parts,
+        commission: parts.reduce((s, x) => s + x.commission, 0),
+      };
+    })
+    .filter((i) => i.branches.length && personMap.get(i.operator)?.role === "operator")
+    .sort((a, b) => b.commission - a.commission || b.production - a.production);
+
+  return {
+    month,
+    from,
+    to,
+    percents,
+    basis: rule.productionBasis,
+    items,
+    summary: {
+      production: items.reduce((s, i) => s + i.production, 0),
+      commission: items.reduce((s, i) => s + i.commission, 0),
+      withGoal: items.filter((i) => i.goal !== null).length,
+      withoutGoal: items.filter((i) => i.goal === null).length,
+      overGoal: items.filter((i) => i.excess > 0).length,
+    },
+  };
+}
+
 async function describeRule(rule: Rule) {
   const users = await User.find({ _id: { $in: rule.exceptions.map((e) => e.operator) } })
     .select("name")
@@ -158,6 +268,7 @@ async function describeRule(rule: Rule) {
   return {
     ...rule,
     exceptions: rule.exceptions.map((e) => ({ ...e, name: names.get(e.operator) ?? "—" })),
+    branchPercents: await branchPercents(),
   };
 }
 

@@ -64,6 +64,9 @@ export async function removeCommissionRow(req: AuthRequest, res: Response) {
 export async function commissionSheet(req: AuthRequest, res: Response) {
   res.json(await commissionService.monthSheet(req.user!, req.query));
 }
+export async function commissionGoalSheet(req: AuthRequest, res: Response) {
+  res.json(await commissionService.goalSheet(req.user!, req.query));
+}
 export async function commissionRule(_req: AuthRequest, res: Response) {
   res.json(await commissionService.getRuleView());
 }

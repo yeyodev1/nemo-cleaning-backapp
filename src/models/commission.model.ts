@@ -29,6 +29,8 @@ export interface ICommissionRule extends Document {
   supervisorMode: "percent" | "fixed";
   /** Monto fijo del supervisor por período (centavos), si `supervisorMode` = fixed. */
   supervisorFixed: number;
+  /** Comisión por meta mensual: % de cada dólar sobre la meta, por sucursal. */
+  branchPercents: { branch: Types.ObjectId; percent: number }[];
 }
 
 const tierSchema = new Schema<ICommissionTier>(
@@ -60,6 +62,15 @@ const commissionRuleSchema = new Schema<ICommissionRule>(
     productionBasis: { type: String, enum: ["total", "subtotal"], default: "total" },
     supervisorMode: { type: String, enum: ["percent", "fixed"], default: "percent" },
     supervisorFixed: { type: Number, default: 0, min: 0 },
+    branchPercents: {
+      type: [
+        new Schema(
+          { branch: { type: Schema.Types.ObjectId, ref: "Branch", required: true }, percent: { type: Number, min: 0, max: 100, required: true } },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     exceptions: {
       type: [
         new Schema<ICommissionException>(

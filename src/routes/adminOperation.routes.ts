@@ -35,6 +35,7 @@ router.put("/commissions/entries", admin, operationController.saveCommissionEntr
 router.post("/commissions/entries/remove-row", admin, operationController.removeCommissionRow);
 router.get("/commissions", staff, operationController.commissionSheet);
 router.get("/commissions/rules", staff, operationController.commissionRule);
+router.get("/commissions/goal-sheet", staff, operationController.commissionGoalSheet);
 router.put("/commissions/rules", admin, operationController.updateCommissionRule);
 router.post("/commissions/adjustments", admin, operationController.addAdjustment);
 router.delete("/commissions/adjustments/:id", admin, operationController.deleteAdjustment);
