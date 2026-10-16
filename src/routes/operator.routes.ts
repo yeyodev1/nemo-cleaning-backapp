@@ -6,5 +6,6 @@ const router = express.Router();
 router.use(requireRoles("operator"));
 router.get("/bookings", operatorController.myBookings);
 router.patch("/bookings/:id/status", operatorController.changeStatus);
+router.post("/bookings/:id/novedades", operatorController.addNovedad);
 
 export default router;

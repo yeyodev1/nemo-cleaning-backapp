@@ -53,7 +53,6 @@ const POPULATE = [
   { path: "operators", select: "name color" },
 ];
 const URL_RE = /^https:\/\/\S+$/i;
-const OPERATOR_STATUSES: BookingStatus[] = ["on_the_way", "in_progress", "completed"];
 
 // ---------------------------------------------------------------------------
 // Ayudas
@@ -822,39 +821,5 @@ export async function listReceivables(user: SessionUser, query: any) {
 // ---------------------------------------------------------------------------
 // Operador (lavador)
 // ---------------------------------------------------------------------------
-
-export async function listOperatorBookings(user: SessionUser, query: any) {
-  const date = isValidDate(query?.date) ? query.date : todayStr();
-  return Booking.find({
-    operators: new Types.ObjectId(user.id),
-    date,
-    status: { $nin: INACTIVE_STATUSES },
-  })
-    .sort({ time: 1 })
-    .populate(POPULATE)
-    .populate("branch", "name address phone")
-    .lean();
-}
-
-export async function operatorChangeStatus(id: string, body: any, user: SessionUser) {
-  assertObjectId(id, "la reserva");
-  const status = String(body?.status ?? "") as BookingStatus;
-  if (!OPERATOR_STATUSES.includes(status)) {
-    throw new CustomError("Estado inválido: usa on_the_way, in_progress o completed", 400);
-  }
-  const booking = await Booking.findById(id);
-  if (!booking) throw new CustomError("Reserva no encontrada", 404);
-  if (!booking.operators.map(String).includes(user.id)) {
-    throw new CustomError("Este servicio no está asignado a ti", 403);
-  }
-  if (["cancelled", "no_show"].includes(booking.status)) {
-    throw new CustomError("Este servicio fue cancelado", 409);
-  }
-  const note = str(body?.note, 500);
-  if (booking.status !== status) booking.status = status;
-  booking.history.push(historyEntry(user.name || user.email, status, note));
-  await booking.save();
-  return Booking.findById(id).populate(POPULATE).populate("branch", "name address phone").lean();
-}
 
 export type { IBooking };

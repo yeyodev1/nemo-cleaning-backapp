@@ -66,9 +66,29 @@ export interface IHistory {
 export interface INovedad {
   _id: Types.ObjectId;
   text: string;
+  /** Fotos de la novedad (Cloudinary): daños, cosas en el carro, estado del lugar. */
+  photos: string[];
   operator: Types.ObjectId | null;
   by: { id: string; name: string };
   at: Date;
+}
+
+/** Lo que reporta el operador al terminar: cómo pagó el cliente y cuánto efectivo recibió. */
+export interface ICloseReport {
+  method: "cash" | "transfer";
+  /** Centavos de efectivo recibidos (0 en transferencia). */
+  cashReceived: number;
+  at: Date;
+  by: { id: string; name: string };
+}
+
+/** Dónde estaba el operador al iniciar el servicio (se marca una sola vez, al inicio). */
+export interface IStartCheck {
+  lat: number;
+  lng: number;
+  accuracy: number;
+  at: Date;
+  by: { id: string; name: string };
 }
 
 /**
@@ -116,6 +136,8 @@ export interface IBooking extends Document {
     address: string;
   };
   location?: IBookingLocation;
+  startCheck?: IStartCheck | null;
+  closeReport?: ICloseReport | null;
   officeQuote: Types.ObjectId | null;
   /** Urbanización / zona del servicio (lista por sucursal, o texto libre si es "Otra"). */
   zone: string;
@@ -160,7 +182,8 @@ const historySchema = new Schema<IHistory>(
 );
 
 const novedadSchema = new Schema<INovedad>({
-  text: { type: String, required: true },
+  text: { type: String, default: "" },
+  photos: { type: [String], default: [] },
   operator: { type: Schema.Types.ObjectId, ref: "User", default: null },
   by: { type: new Schema({ id: String, name: String }, { _id: false }) },
   at: { type: Date, default: Date.now },
@@ -223,6 +246,31 @@ const bookingSchema = new Schema<IBooking>(
       default: "pending_confirmation",
     },
     novedades: { type: [novedadSchema], default: [] },
+    closeReport: {
+      type: new Schema<ICloseReport>(
+        {
+          method: { type: String, enum: ["cash", "transfer"] },
+          cashReceived: { type: Number, default: 0 },
+          at: Date,
+          by: { type: new Schema({ id: String, name: String }, { _id: false }) },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    startCheck: {
+      type: new Schema<IStartCheck>(
+        {
+          lat: Number,
+          lng: Number,
+          accuracy: { type: Number, default: 0 },
+          at: Date,
+          by: { type: new Schema({ id: String, name: String }, { _id: false }) },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     history: { type: [historySchema], default: [] },
     importBatch: { type: String },
   },

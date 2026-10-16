@@ -84,6 +84,7 @@ export async function listNovedades(user: SessionUser, query: any) {
         date: 1,
         branch: 1,
         text: "$novedades.text",
+        photos: { $ifNull: ["$novedades.photos", []] },
         at: "$novedades.at",
         by: "$novedades.by",
         customer: { $arrayElemAt: ["$c.name", 0] },
