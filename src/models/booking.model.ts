@@ -80,6 +80,11 @@ export interface ICloseReport {
   cashReceived: number;
   at: Date;
   by: { id: string; name: string };
+  /** La oficina (administrador o gerencia) recibió el efectivo / confirmó la transferencia. */
+  receivedAt?: Date | null;
+  receivedBy?: { id: string; name: string } | null;
+  receivedAmount?: number;
+  proofUrl?: string;
 }
 
 /** Dónde estaba el operador al iniciar el servicio (se marca una sola vez, al inicio). */
@@ -253,6 +258,10 @@ const bookingSchema = new Schema<IBooking>(
           cashReceived: { type: Number, default: 0 },
           at: Date,
           by: { type: new Schema({ id: String, name: String }, { _id: false }) },
+          receivedAt: { type: Date, default: null },
+          receivedBy: { type: new Schema({ id: String, name: String }, { _id: false }), default: null },
+          receivedAmount: { type: Number, default: 0 },
+          proofUrl: { type: String, default: "" },
         },
         { _id: false },
       ),

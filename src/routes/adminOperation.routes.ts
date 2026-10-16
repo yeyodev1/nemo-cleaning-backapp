@@ -1,6 +1,7 @@
 import express from "express";
 import * as operationController from "../controllers/adminOperation.controller";
 import * as staffIncidentController from "../controllers/staffIncident.controller";
+import * as collectionController from "../controllers/operatorCollection.controller";
 import { requireRoles } from "../middlewares/auth.middleware";
 
 /** Módulo "Operación" (fase 2): se monta dentro de /admin, ya autenticado. */
@@ -18,6 +19,11 @@ router.post("/bookings/:id/novedades", staff, operationController.addNovedad);
 router.delete("/bookings/:id/novedades/:nid", staff, operationController.deleteNovedad);
 
 // Novedades del personal (llegó tarde, pelea, problema con cliente…).
+// Cobros que reportan los operadores (efectivo por recibir / transferencias por confirmar).
+router.get("/collections", staff, collectionController.list);
+router.get("/collections/pending", staff, collectionController.pending);
+router.post("/collections/:id/receive", staff, collectionController.receive);
+
 router.get("/staff-incidents", staff, staffIncidentController.list);
 router.post("/staff-incidents", staff, staffIncidentController.create);
 router.delete("/staff-incidents/:id", staff, staffIncidentController.remove);

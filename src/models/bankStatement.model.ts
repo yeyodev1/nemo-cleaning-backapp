@@ -11,6 +11,8 @@ export interface IBankStatement extends Document {
   to: string;
   amount: number;
   note: string;
+  /** Archivo del estado de cuenta (PDF o imagen en Cloudinary) para descargarlo después. */
+  fileUrl: string;
   updatedBy?: { id: string; name: string };
 }
 
@@ -22,6 +24,7 @@ const bankStatementSchema = new Schema<IBankStatement>(
     to: { type: String, required: true },
     amount: { type: Number, required: true, min: 0 },
     note: { type: String, default: "" },
+    fileUrl: { type: String, default: "" },
     updatedBy: { type: new Schema({ id: String, name: String }, { _id: false }) },
   },
   { timestamps: true, versionKey: false },

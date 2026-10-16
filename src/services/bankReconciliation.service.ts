@@ -81,6 +81,7 @@ export async function bankReconciliation(user: SessionUser, query: any) {
         ...a,
         bank,
         bankNote: s?.note ?? "",
+        bankFileUrl: s?.fileUrl ?? "",
         difference: bank === null ? null : bank - a.registered,
         pendingVerification: a.registered - a.verified,
       };
@@ -128,9 +129,11 @@ export async function saveStatement(body: any, user: SessionUser) {
     return { ...key, amount: null };
   }
   const amount = cents(body.amount, "El monto del banco");
+  const fileUrl = body?.fileUrl !== undefined ? str(body.fileUrl, 500) : undefined;
+  if (fileUrl && !/^https:\/\/res\.cloudinary\.com\//.test(fileUrl)) throw new CustomError("Archivo del estado de cuenta inválido", 400);
   const doc = await BankStatement.findOneAndUpdate(
     key,
-    { $set: { amount, note: str(body?.note, 200), updatedBy: actor(user) } },
+    { $set: { amount, note: str(body?.note, 200), updatedBy: actor(user), ...(fileUrl !== undefined ? { fileUrl } : {}) } },
     { upsert: true, new: true },
   ).lean();
   return doc;
