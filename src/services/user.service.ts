@@ -1,5 +1,6 @@
 import { isValidObjectId, Types } from "mongoose";
 import { CustomError } from "../errors/customError.error";
+import { hashPassword, requirePassword } from "../utils/password";
 import { Branch } from "../models/branch.model";
 import { POSITIONS, ROLES, User } from "../models/user.model";
 import { SessionUser } from "../types/AuthRequest";
@@ -22,6 +23,8 @@ export function serializeUser(u: any) {
     commissions: u.commissions !== false,
     supervisor: u.supervisor ? String(u.supervisor?._id ?? u.supervisor) : null,
     hasPanelAccess: Boolean(u.email) && u.active !== false,
+    // Solo si se pidió el campo (select +password): nunca se manda el hash.
+    ...(u.password !== undefined ? { hasPassword: Boolean(u.password) } : {}),
     createdAt: u.createdAt,
   };
 }
@@ -92,13 +95,13 @@ export async function listUsers(user: SessionUser, query: any) {
     const re = new RegExp(escapeRegex(str(query.q, 80)), "i");
     filter.$or = [{ name: re }, { email: re }, { phone: re }];
   }
-  const users = await User.find(filter).sort({ role: 1, name: 1 }).lean();
+  const users = await User.find(filter).select("+password").sort({ role: 1, name: 1 }).lean();
   return users.map(serializeUser);
 }
 
 export async function getUser(id: string) {
   assertObjectId(id, "el usuario");
-  const u = await User.findById(id).lean();
+  const u = await User.findById(id).select("+password").lean();
   if (!u) throw new CustomError("Usuario no encontrado", 404);
   return serializeUser(u);
 }
@@ -116,7 +119,11 @@ export async function createUser(body: any) {
   await applyStaffFields(extra, body);
   const color = body?.color && HEX.test(String(body.color)) ? String(body.color) : undefined;
   const branches = body?.branches !== undefined ? await parseBranches(body.branches) : [];
+  // Contraseña opcional al crear: sin ella entra con el código al correo.
+  const password = body?.password ? hashPassword(checkPassword(body.password)) : undefined;
+  if (password && !email) throw new CustomError("Para darle contraseña, la persona necesita correo", 400);
   const user = await User.create({
+    ...(password ? { password } : {}),
     name,
     email,
     phone: str(body?.phone, 30),
@@ -127,6 +134,28 @@ export async function createUser(body: any) {
     ...extra,
   });
   return serializeUser(user);
+}
+
+function checkPassword(raw: unknown): string {
+  try {
+    return requirePassword(raw);
+  } catch (e) {
+    throw new CustomError((e as Error).message, 400);
+  }
+}
+
+/**
+ * PUT /admin/users/:id/password — gerencia pone o cambia la contraseña de cualquiera
+ * en cualquier momento. `password: null` la quita (vuelve a entrar solo con código).
+ */
+export async function setUserPassword(id: string, body: any) {
+  assertObjectId(id, "el usuario");
+  const user = await User.findById(id).select("+password");
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+  if (!user.email) throw new CustomError("Primero ponle un correo: con él entra al panel", 400);
+  user.password = body?.password === null ? undefined : hashPassword(checkPassword(body?.password));
+  await user.save();
+  return serializeUser(user.toObject());
 }
 
 export async function updateUser(id: string, body: any, current: SessionUser) {

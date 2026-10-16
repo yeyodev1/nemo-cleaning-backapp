@@ -14,6 +14,10 @@ export async function login(req: Request, res: Response) {
   res.json(await authService.loginWithPassword(req.body?.email, req.body?.password));
 }
 
+export async function resetPassword(req: Request, res: Response) {
+  res.json(await authService.resetPassword(req.body?.email, req.body?.code, req.body?.password));
+}
+
 export async function me(req: AuthRequest, res: Response) {
   res.json(await authService.me(req.user!.id));
 }

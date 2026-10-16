@@ -25,6 +25,9 @@ export async function getUser(req: AuthRequest, res: Response) {
 export async function createUser(req: AuthRequest, res: Response) {
   res.status(201).json(await userService.createUser(req.body));
 }
+export async function setUserPassword(req: AuthRequest, res: Response) {
+  res.json(await userService.setUserPassword(String(req.params.id), req.body));
+}
 export async function updateUser(req: AuthRequest, res: Response) {
   res.json(await userService.updateUser(String(req.params.id), req.body, req.user!));
 }

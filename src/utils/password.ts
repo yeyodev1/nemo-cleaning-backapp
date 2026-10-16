@@ -1,6 +1,15 @@
 import crypto from "crypto";
 
 const KEY_LEN = 64;
+export const MIN_PASSWORD = 6;
+
+/** Valida la contraseña nueva (texto) o lanza el mensaje para el usuario. */
+export function requirePassword(raw: unknown): string {
+  const password = String(raw ?? "");
+  if (password.length < MIN_PASSWORD) throw new Error(`La contraseña debe tener al menos ${MIN_PASSWORD} caracteres`);
+  if (password.length > 128) throw new Error("La contraseña es demasiado larga");
+  return password;
+}
 
 /** Hash con scrypt y sal aleatoria: `scrypt$<sal>$<hash>` (hex). */
 export function hashPassword(password: string): string {

@@ -65,6 +65,7 @@ router.get("/users", staff, peopleController.listUsers);
 router.post("/users", admin, peopleController.createUser);
 router.get("/users/:id", admin, peopleController.getUser);
 router.patch("/users/:id", admin, peopleController.updateUser);
+router.put("/users/:id/password", admin, peopleController.setUserPassword);
 
 // Cotizaciones de oficina
 router.get("/office-quotes", staff, officeQuoteController.list);

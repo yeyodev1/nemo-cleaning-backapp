@@ -6,7 +6,7 @@ import { Branch } from "../models/branch.model";
 import { User } from "../models/user.model";
 import { STAFF_AUDIENCE } from "../types/AuthRequest";
 import { requireEmail } from "../utils/http";
-import { verifyPassword } from "../utils/password";
+import { hashPassword, requirePassword, verifyPassword } from "../utils/password";
 import { consumeLoginCode, issueLoginCode } from "./loginCode.service";
 import { serializeUser } from "./user.service";
 
@@ -51,6 +51,27 @@ export async function loginWithPassword(emailRaw: unknown, passwordRaw: unknown)
     throw new CustomError("Correo o contraseña incorrectos", 401);
   }
   if (!user.active) throw new CustomError("Tu cuenta no está activa", 401);
+  user.lastLoginAt = new Date();
+  await user.save();
+  return { token: signToken(user), user: serializeUser(user) };
+}
+
+/**
+ * POST /auth/reset-password — ¿olvidaste tu contraseña? Con el código que llegó al
+ * correo (mismo de /auth/request-code) se pone una nueva y entra de una vez.
+ */
+export async function resetPassword(emailRaw: unknown, codeRaw: unknown, passwordRaw: unknown) {
+  const email = requireEmail(emailRaw);
+  let password: string;
+  try {
+    password = requirePassword(passwordRaw);
+  } catch (e) {
+    throw new CustomError((e as Error).message, 400);
+  }
+  await consumeLoginCode(email, "staff", codeRaw);
+  const user = await User.findOne({ email }).select("+password");
+  if (!user || !user.active) throw new CustomError("Tu cuenta no está activa", 401);
+  user.password = hashPassword(password);
   user.lastLoginAt = new Date();
   await user.save();
   return { token: signToken(user), user: serializeUser(user) };
