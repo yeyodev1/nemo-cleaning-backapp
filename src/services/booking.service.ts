@@ -645,13 +645,20 @@ export async function listBookings(user: SessionUser, query: any) {
 
 export async function getAgenda(user: SessionUser, query: any) {
   const date = isValidDate(query?.date) ? query.date : todayStr();
+  // Semana o mes: `from`/`to` (máx. 42 días, lo que muestra la grilla del mes).
+  let dateFilter: string | { $gte: string; $lte: string } = date;
+  if (isValidDate(query?.from) && isValidDate(query?.to) && query.from <= query.to) {
+    const days = (Date.parse(query.to) - Date.parse(query.from)) / 86_400_000;
+    if (days > 42) throw new CustomError("El rango de la agenda es de máximo 6 semanas", 400);
+    dateFilter = { $gte: query.from, $lte: query.to };
+  }
   const scope = branchFilter(user, query?.branch);
   const opFilter: Record<string, any> = { role: "operator", active: true };
   if (scope.branch) opFilter.branches = scope.branch;
   const [operators, bookings] = await Promise.all([
     User.find(opFilter).select("name color phone branches").sort({ name: 1 }).lean(),
-    Booking.find({ ...scope, date })
-      .sort({ time: 1 })
+    Booking.find({ ...scope, date: dateFilter })
+      .sort({ date: 1, time: 1 })
       .populate(POPULATE)
       .lean(),
   ]);
