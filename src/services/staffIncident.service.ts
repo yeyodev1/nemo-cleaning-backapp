@@ -75,6 +75,10 @@ export async function createStaffIncident(user: SessionUser, body: any) {
   const date = isValidDate(body?.date) ? body.date : todayStr();
   if (date > todayStr()) throw new CustomError("La fecha no puede ser futura", 400);
   const text = str(body?.text, 1000);
+  // Un atraso, una falta o una pelea siempre son de alguien.
+  if (!personId && ["late", "absence", "fight"].includes(type)) {
+    throw new CustomError(type === "late" ? "Elige al operador que llegó tarde" : "Elige a la persona", 400);
+  }
   if ((type === "other" || !personId) && !text) throw new CustomError("Describe qué pasó", 400);
   const created = await StaffIncident.create({ user: personId || null, branch, type, date, text, by: actor(user) });
   return serialize(await StaffIncident.findById(created._id).populate("user", "name color").lean());
