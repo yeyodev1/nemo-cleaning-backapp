@@ -19,7 +19,11 @@ async function loadScoped(id: string, user: SessionUser) {
 export async function addNovedad(bookingId: string, body: any, user: SessionUser) {
   const booking = await loadScoped(bookingId, user);
   const text = str(body?.text, 1000);
-  if (!text) throw new CustomError("Escribe qué pasó", 400);
+  // Fotos opcionales (Cloudinary), como las que sube el operador desde su celular.
+  const photos: string[] = Array.isArray(body?.photos)
+    ? body.photos.map((p: unknown) => String(p)).filter((p: string) => /^https:\/\/res\.cloudinary\.com\/\S+$/.test(p)).slice(0, 8)
+    : [];
+  if (!text && !photos.length) throw new CustomError("Escribe qué pasó o agrega una foto", 400);
   let operator: Types.ObjectId | null = null;
   if (body?.operator) {
     const id = assertObjectId(String(body.operator), "el operador");
@@ -30,8 +34,8 @@ export async function addNovedad(bookingId: string, body: any, user: SessionUser
     operator = booking.operators[0];
   }
   const by = actor(user)!;
-  booking.novedades.push({ text, operator, by, at: new Date() } as any);
-  booking.history.push({ at: new Date(), by: by.name, action: "novedad", note: text.slice(0, 200) });
+  booking.novedades.push({ text, photos, operator, by, at: new Date() } as any);
+  booking.history.push({ at: new Date(), by: by.name, action: "novedad", note: (text || `${photos.length} foto(s)`).slice(0, 200) });
   await booking.save();
   return booking.novedades[booking.novedades.length - 1];
 }
