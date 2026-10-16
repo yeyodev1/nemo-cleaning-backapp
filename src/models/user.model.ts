@@ -8,7 +8,7 @@ export interface IUser extends Document {
   name: string;
   email: string;
   phone: string;
-  /** Legado: el acceso es por código al correo. Se conserva por los documentos viejos. */
+  /** Hash scrypt (`utils/password`) para entrar con contraseña; también se puede entrar por código. */
   password?: string;
   role: (typeof ROLES)[number];
   branches: Types.ObjectId[];

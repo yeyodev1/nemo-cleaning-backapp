@@ -10,6 +10,10 @@ export async function verify(req: Request, res: Response) {
   res.json(await authService.verifyCode(req.body?.email, req.body?.code));
 }
 
+export async function login(req: Request, res: Response) {
+  res.json(await authService.loginWithPassword(req.body?.email, req.body?.password));
+}
+
 export async function me(req: AuthRequest, res: Response) {
   res.json(await authService.me(req.user!.id));
 }

@@ -6,6 +6,7 @@ import { Branch } from "../models/branch.model";
 import { User } from "../models/user.model";
 import { STAFF_AUDIENCE } from "../types/AuthRequest";
 import { requireEmail } from "../utils/http";
+import { verifyPassword } from "../utils/password";
 import { consumeLoginCode, issueLoginCode } from "./loginCode.service";
 import { serializeUser } from "./user.service";
 
@@ -35,6 +36,21 @@ export async function verifyCode(emailRaw: unknown, codeRaw: unknown) {
   const user = await User.findOne({ email });
   // La cuenta pudo desactivarse entre el envío y la verificación.
   if (!user || !user.active) throw new CustomError("Tu cuenta no está activa", 401);
+  user.lastLoginAt = new Date();
+  await user.save();
+  return { token: signToken(user), user: serializeUser(user) };
+}
+
+/** POST /auth/login. Mismo mensaje si el correo no existe o la clave falla. */
+export async function loginWithPassword(emailRaw: unknown, passwordRaw: unknown) {
+  const email = requireEmail(emailRaw);
+  const password = String(passwordRaw ?? "");
+  if (!password) throw new CustomError("Escribe tu contraseña", 400);
+  const user = await User.findOne({ email }).select("+password");
+  if (!user || !verifyPassword(password, user.password)) {
+    throw new CustomError("Correo o contraseña incorrectos", 401);
+  }
+  if (!user.active) throw new CustomError("Tu cuenta no está activa", 401);
   user.lastLoginAt = new Date();
   await user.save();
   return { token: signToken(user), user: serializeUser(user) };
